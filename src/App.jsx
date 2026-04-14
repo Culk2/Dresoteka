@@ -6,6 +6,7 @@ import { urlFor } from './lib/sanityImage';
 const fallbackProducts = [
   {
     _id: 'fallback-france',
+    slug: 'francija-2026-home-jersey',
     club: 'Francija',
     league: 'International',
     size: 'M',
@@ -17,6 +18,7 @@ const fallbackProducts = [
   },
   {
     _id: 'fallback-england',
+    slug: 'england-2026-away-jersey',
     club: 'England',
     league: 'International',
     size: 'L',
@@ -28,6 +30,7 @@ const fallbackProducts = [
   },
   {
     _id: 'fallback-brazil',
+    slug: 'brazil-2026-match-away',
     club: 'Brazil',
     league: 'International',
     size: 'S',
@@ -39,6 +42,7 @@ const fallbackProducts = [
   },
   {
     _id: 'fallback-barcelona',
+    slug: 'barcelona-heritage-jersey',
     club: 'Barcelona',
     league: 'La Liga',
     size: 'XL',
@@ -50,6 +54,7 @@ const fallbackProducts = [
   },
   {
     _id: 'fallback-milan',
+    slug: 'ac-milan-fourth-kit',
     club: 'AC Milan',
     league: 'Serie A',
     size: 'L',
@@ -61,6 +66,7 @@ const fallbackProducts = [
   },
   {
     _id: 'fallback-slovenija',
+    slug: 'slovenija-stadium-jersey',
     club: 'Slovenija',
     league: 'International',
     size: 'M',
@@ -74,6 +80,20 @@ const fallbackProducts = [
 
 const productQuery = `*[_type == "product"] | order(_createdAt desc)[0...12]{
   _id,
+  "slug": slug.current,
+  "name": coalesce(title, club->name),
+  "club": club->name,
+  size,
+  version,
+  "league": league->title,
+  description,
+  price,
+  image
+}`;
+
+const productDetailQuery = `*[_type == "product" && slug.current == $slug][0]{
+  _id,
+  "slug": slug.current,
   "name": coalesce(title, club->name),
   "club": club->name,
   size,
@@ -238,6 +258,33 @@ function matchesPriceFilter(product, value) {
   return product.price >= min && product.price <= max;
 }
 
+function slugifyProduct(value) {
+  return String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+function getProductSlug(product) {
+  return product.slug || slugifyProduct(product.name || product.club || product._id);
+}
+
+function getProductPath(baseUrl, slug) {
+  return `${baseUrl}/dres/${slug}`;
+}
+
+function getProductSlugFromPath(pathname, baseUrl) {
+  const productPrefix = `${baseUrl}/dres/`;
+
+  if (!pathname.startsWith(productPrefix)) {
+    return '';
+  }
+
+  return decodeURIComponent(pathname.slice(productPrefix.length)).replace(/\/$/, '');
+}
+
 function formatSanityError(error) {
   const message = typeof error?.message === 'string' ? error.message : '';
   const lowerMessage = message.toLowerCase();
@@ -261,10 +308,73 @@ function formatSanityError(error) {
   return 'Sanity trenutno ni povezan, zato je prikazan demo katalog.';
 }
 
+function ProductDetailPage({ product, baseUrl, isLoading }) {
+  const backHref = `${baseUrl || ''}/#shop`;
+
+  if (isLoading) {
+    return (
+      <main className="content-shell">
+        <section className="detail-shell">
+          <a className="back-link" href={backHref}>
+            Nazaj na katalog
+          </a>
+          <div className="empty-state">Nalagam izbrani dres...</div>
+        </section>
+      </main>
+    );
+  }
+
+  if (!product) {
+    return (
+      <main className="content-shell">
+        <section className="detail-shell">
+          <a className="back-link" href={backHref}>
+            Nazaj na katalog
+          </a>
+          <div className="empty-state">Tega dresa nismo nasli.</div>
+        </section>
+      </main>
+    );
+  }
+
+  return (
+    <main className="content-shell">
+      <section className="detail-shell">
+        <a className="back-link" href={backHref}>
+          Nazaj na katalog
+        </a>
+
+        <div className="detail-layout">
+          <div className="detail-media">
+            <ProductVisual product={product} index={0} />
+          </div>
+
+          <div className="detail-copy">
+            <p className="tag">{product.league || 'Liga'}</p>
+            <h1 className="detail-title">{product.name || product.club}</h1>
+            <p className="detail-subtitle">{product.club}</p>
+            <p className="detail-price">{formatPrice(product.price) || 'Cena v pripravi'}</p>
+            <p className="detail-description">{product.description || 'Opis dodaj v Sanity Studio.'}</p>
+
+            <div className="detail-meta">
+              {product.club ? <span>Klub: {product.club}</span> : null}
+              {product.league ? <span>Liga: {product.league}</span> : null}
+              {product.version ? <span>Verzija: {formatVersion(product.version)}</span> : null}
+              {product.size ? <span>Velikost: {product.size}</span> : null}
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  );
+}
+
 function App() {
   const hasClerk = Boolean(import.meta.env.VITE_CLERK_PUBLISHABLE_KEY);
   const baseUrl = (import.meta.env.BASE_URL || '/').replace(/\/$/, '');
   const studioPath = `${baseUrl}/studio`;
+  const selectedProductSlug = getProductSlugFromPath(window.location.pathname, baseUrl);
+  const isProductPage = Boolean(selectedProductSlug);
   const [products, setProducts] = useState(fallbackProducts);
   const [isSanityLoading, setIsSanityLoading] = useState(true);
   const [sanityError, setSanityError] = useState('');
@@ -295,12 +405,33 @@ function App() {
       matchesPriceFilter(product, selectedFilters.price)
     );
   });
+  const selectedProduct = isProductPage
+    ? products.find((product) => getProductSlug(product) === selectedProductSlug)
+    : null;
 
   useEffect(() => {
     let isActive = true;
 
     async function loadProducts() {
       try {
+        if (isProductPage) {
+          const sanityProduct = await sanityClient.fetch(productDetailQuery, { slug: selectedProductSlug });
+
+          if (!isActive) {
+            return;
+          }
+
+          if (sanityProduct) {
+            setProducts([sanityProduct]);
+          } else {
+            const fallbackProduct = fallbackProducts.find((product) => getProductSlug(product) === selectedProductSlug);
+
+            setProducts(fallbackProduct ? [fallbackProduct] : []);
+          }
+
+          return;
+        }
+
         const sanityProducts = await sanityClient.fetch(productQuery);
 
         if (!isActive || !Array.isArray(sanityProducts) || sanityProducts.length === 0) {
@@ -326,7 +457,7 @@ function App() {
     return () => {
       isActive = false;
     };
-  }, []);
+  }, [isProductPage, selectedProductSlug]);
 
   function handleFilterChange(key, value) {
     setSelectedFilters((current) => ({
@@ -372,77 +503,83 @@ function App() {
       <section className="announcement">
         <span>&lt;</span>
         <p>
-          Shop All New Arrivals <a href="#shop">Shop</a>
+          Shop All New Arrivals <a href={isProductPage ? `${baseUrl || ''}/#shop` : '#shop'}>Shop</a>
         </p>
         <span>&gt;</span>
       </section>
 
-      <main className="content-shell">
-        <section className="catalog-layout">
-          <aside className="sidebar">
-            <div className="filter-list">
-              {filterGroups.map((group) => (
-                <section className="filter-group" key={group.label}>
-                  <label className="filter-label" htmlFor={`filter-${group.key}`}>
-                    {group.label}
-                  </label>
-                  <div className="filter-select-wrap">
-                    <select
-                      className="filter-select"
-                      id={`filter-${group.key}`}
-                      value={selectedFilters[group.key]}
-                      onChange={(event) => handleFilterChange(group.key, event.target.value)}
-                    >
-                      <option value="">Vse</option>
-                      {group.options.map((option) => {
-                        const optionValue = typeof option === 'string' ? option : option.value;
-                        const optionLabel = typeof option === 'string' ? option : option.label;
+      {isProductPage ? (
+        <ProductDetailPage product={selectedProduct} baseUrl={baseUrl} isLoading={isSanityLoading} />
+      ) : (
+        <main className="content-shell">
+          <section className="catalog-layout">
+            <aside className="sidebar">
+              <div className="filter-list">
+                {filterGroups.map((group) => (
+                  <section className="filter-group" key={group.label}>
+                    <label className="filter-label" htmlFor={`filter-${group.key}`}>
+                      {group.label}
+                    </label>
+                    <div className="filter-select-wrap">
+                      <select
+                        className="filter-select"
+                        id={`filter-${group.key}`}
+                        value={selectedFilters[group.key]}
+                        onChange={(event) => handleFilterChange(group.key, event.target.value)}
+                      >
+                        <option value="">Vse</option>
+                        {group.options.map((option) => {
+                          const optionValue = typeof option === 'string' ? option : option.value;
+                          const optionLabel = typeof option === 'string' ? option : option.label;
 
-                        return (
-                          <option key={optionValue} value={optionValue}>
-                            {optionLabel}
-                          </option>
-                        );
-                      })}
-                    </select>
-                  </div>
-                </section>
+                          return (
+                            <option key={optionValue} value={optionValue}>
+                              {optionLabel}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    </div>
+                  </section>
+                ))}
+              </div>
+            </aside>
+
+            <section className="product-grid" id="shop">
+              {filteredProducts.map((product, index) => (
+                <article className="product-card" key={product._id || product.name}>
+                  <a className="product-link" href={getProductPath(baseUrl, getProductSlug(product))}>
+                    <ProductVisual product={product} index={index} />
+
+                    <div className="product-copy">
+                      <p className="tag">{product.league || 'Liga'}</p>
+                      <h2>{product.name || product.club}</h2>
+                      <p className="description">{product.description || 'Opis dodaj v Sanity Studio.'}</p>
+                      <p className="product-meta">
+                        {product.club ? <span>{product.club}</span> : null}
+                        {product.league ? <span>{product.league}</span> : null}
+                        {product.version ? <span>{formatVersion(product.version)}</span> : null}
+                        {product.size ? <span>{product.size}</span> : null}
+                      </p>
+                      <p className="price">{formatPrice(product.price) || 'Cena v pripravi'}</p>
+                    </div>
+                  </a>
+                </article>
               ))}
-            </div>
-          </aside>
-
-          <section className="product-grid" id="shop">
-            {filteredProducts.map((product, index) => (
-              <article className="product-card" key={product._id || product.name}>
-                <ProductVisual product={product} index={index} />
-
-                <div className="product-copy">
-                  <p className="tag">{product.league || 'Liga'}</p>
-                  <h2>{product.club}</h2>
-                  <p className="description">{product.description || 'Opis dodaj v Sanity Studio.'}</p>
-                  <p className="product-meta">
-                    {product.club ? <span>{product.club}</span> : null}
-                    {product.league ? <span>{product.league}</span> : null}
-                    {product.version ? <span>{formatVersion(product.version)}</span> : null}
-                    {product.size ? <span>{product.size}</span> : null}
-                  </p>
-                  <p className="price">{formatPrice(product.price) || 'Cena v pripravi'}</p>
-                </div>
-              </article>
-            ))}
-            {filteredProducts.length === 0 ? (
-              <p className="empty-state">Za izbrane filtre ni najdenih izdelkov.</p>
-            ) : null}
+              {filteredProducts.length === 0 ? (
+                <p className="empty-state">Za izbrane filtre ni najdenih izdelkov.</p>
+              ) : null}
+            </section>
           </section>
-        </section>
 
-        {isSanityLoading || sanityError ? (
-          <section className="sanity-status">
-            {isSanityLoading ? <p>Nalagam izdelke iz Sanity...</p> : null}
-            {sanityError ? <p>{sanityError}</p> : null}
-          </section>
-        ) : null}
-      </main>
+          {isSanityLoading || sanityError ? (
+            <section className="sanity-status">
+              {isSanityLoading ? <p>Nalagam izdelke iz Sanity...</p> : null}
+              {sanityError ? <p>{sanityError}</p> : null}
+            </section>
+          ) : null}
+        </main>
+      )}
     </div>
   );
 }

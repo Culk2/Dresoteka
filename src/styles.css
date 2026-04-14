@@ -244,6 +244,10 @@ h1 {
   background: transparent;
 }
 
+.product-link {
+  display: block;
+}
+
 .product-visual {
   height: 460px;
   background: #e7e7e7;
@@ -393,6 +397,77 @@ h1 {
   font-weight: 700;
 }
 
+.detail-shell {
+  display: grid;
+  gap: 20px;
+}
+
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid #dddddd;
+  border-radius: 999px;
+  background: #ffffff;
+  font-weight: 700;
+}
+
+.detail-layout {
+  display: grid;
+  grid-template-columns: minmax(320px, 720px) minmax(280px, 520px);
+  gap: 32px;
+  align-items: start;
+}
+
+.detail-media .product-visual {
+  height: 720px;
+}
+
+.detail-copy {
+  padding: 12px 0;
+}
+
+.detail-title {
+  margin: 0;
+  font-size: clamp(34px, 4vw, 56px);
+  line-height: 0.95;
+}
+
+.detail-subtitle {
+  margin: 10px 0 0;
+  font-size: 20px;
+  color: #555555;
+}
+
+.detail-price {
+  margin: 20px 0 0;
+  font-size: 28px;
+  font-weight: 800;
+}
+
+.detail-description {
+  margin: 20px 0 0;
+  max-width: 52ch;
+  color: #555555;
+  line-height: 1.6;
+}
+
+.detail-meta {
+  margin-top: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.detail-meta span {
+  padding: 12px 14px;
+  border: 1px solid #dddddd;
+  border-radius: 14px;
+  background: #ffffff;
+}
+
 .sanity-status {
   margin-top: 32px;
   padding: 16px 18px;
@@ -419,6 +494,14 @@ h1 {
 
   .catalog-layout {
     grid-template-columns: 1fr;
+  }
+
+  .detail-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .detail-media .product-visual {
+    height: 560px;
   }
 
   .product-grid {
@@ -458,5 +541,9 @@ h1 {
 
   .product-visual {
     height: 380px;
+  }
+
+  .detail-media .product-visual {
+    height: 420px;
   }
 }
