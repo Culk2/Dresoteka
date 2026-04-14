@@ -1,19 +1,44 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { ClerkProvider } from '@clerk/react';
-import App from './App';
 import './styles.css';
 
 const publishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
+const baseUrl = (import.meta.env.BASE_URL || '/').replace(/\/$/, '');
+const studioPath = `${baseUrl}/studio`;
+const studioPrefix = studioPath.endsWith('/') ? studioPath : `${studioPath}/`;
+const isStudioRoute =
+  window.location.pathname === studioPath ||
+  window.location.pathname.startsWith(studioPrefix);
 
-ReactDOM.createRoot(document.getElementById('root')).render(
-  <React.StrictMode>
-    {publishableKey ? (
-      <ClerkProvider publishableKey={publishableKey}>
+async function bootstrap() {
+  const root = ReactDOM.createRoot(document.getElementById('root'));
+
+  if (isStudioRoute) {
+    const { default: StudioPage } = await import('./StudioPage');
+
+    root.render(
+      <React.StrictMode>
+        <StudioPage />
+      </React.StrictMode>,
+    );
+
+    return;
+  }
+
+  const { default: App } = await import('./App');
+
+  root.render(
+    <React.StrictMode>
+      {publishableKey ? (
+        <ClerkProvider publishableKey={publishableKey}>
+          <App />
+        </ClerkProvider>
+      ) : (
         <App />
-      </ClerkProvider>
-    ) : (
-      <App />
-    )}
-  </React.StrictMode>,
-);
+      )}
+    </React.StrictMode>,
+  );
+}
+
+bootstrap();

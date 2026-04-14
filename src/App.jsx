@@ -1,5 +1,7 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Show, SignInButton, SignUpButton, UserButton, useAuth } from '@clerk/react';
+import { sanityClient } from './lib/sanityClient';
+import { urlFor } from './lib/sanityImage';
 
 const sidebarLinks = [
   'Match dresi',
@@ -13,50 +15,78 @@ const sidebarLinks = [
 
 const filterGroups = ['Spol', 'Cena', 'Akcije', 'Velikost', 'Kolekcije'];
 
-const products = [
+const fallbackProducts = [
   {
-    tag: 'Najbolj prodajano',
+    _id: 'fallback-france',
+    badge: 'Najbolj prodajano',
     name: 'Francija 2026 Home Jersey',
     description: 'Tekmovalna verzija dresa',
-    price: '129.99 EUR',
+    price: 129.99,
     imageClass: 'shirt-blue',
   },
   {
-    tag: 'Novo',
+    _id: 'fallback-england',
+    badge: 'Novo',
     name: 'England 2026 Away Jersey',
     description: 'Navijaska verzija dresa',
-    price: '99.99 EUR',
+    price: 99.99,
     imageClass: 'shirt-white',
   },
   {
-    tag: 'Reciklirani materiali',
+    _id: 'fallback-brazil',
+    badge: 'Reciklirani materiali',
     name: 'Brazil 2026 Match Away',
     description: 'Avtenticen nogometni dres',
-    price: '139.99 EUR',
+    price: 139.99,
     imageClass: 'shirt-navy',
   },
   {
-    tag: 'Omejena serija',
+    _id: 'fallback-barcelona',
+    badge: 'Omejena serija',
     name: 'Barcelona Heritage Jersey',
     description: 'Retro navijaski kos',
-    price: '109.99 EUR',
+    price: 109.99,
     imageClass: 'shirt-burgundy',
   },
   {
-    tag: 'Just In',
+    _id: 'fallback-milan',
+    badge: 'Just In',
     name: 'AC Milan Fourth Kit',
     description: 'Streetwear kolekcija',
-    price: '119.99 EUR',
+    price: 119.99,
     imageClass: 'shirt-black',
   },
   {
-    tag: 'Samo online',
+    _id: 'fallback-slovenija',
+    badge: 'Samo online',
     name: 'Slovenija Stadium Jersey',
     description: 'Lahka supporter izdaja',
-    price: '89.99 EUR',
+    price: 89.99,
     imageClass: 'shirt-mint',
   },
 ];
+
+const productQuery = `*[_type == "product"] | order(_createdAt desc)[0...12]{
+  _id,
+  "club": club->name,
+  size,
+  version,
+  "league": league->title,
+  description,
+  price,
+  image
+}`;
+
+function formatPrice(value) {
+  if (typeof value !== 'number') {
+    return null;
+  }
+
+  return new Intl.NumberFormat('sl-SI', {
+    style: 'currency',
+    currency: 'EUR',
+  }).format(value);
+}
 
 function AuthControls() {
   const { isLoaded } = useAuth();
@@ -91,8 +121,86 @@ function AuthControls() {
   );
 }
 
+function ProductVisual({ product, index }) {
+  const hasImage = Boolean(product.image?.asset?._ref || product.image?.asset?._id);
+
+  if (hasImage) {
+    const imageUrl = urlFor(product.image).width(900).height(1100).fit('crop').url();
+
+    return (
+      <div className="product-visual product-visual-image">
+        <img src={imageUrl} alt={product.name} />
+      </div>
+    );
+  }
+
+  const fallbackClass = fallbackProducts[index % fallbackProducts.length].imageClass;
+
+  return (
+    <div className={`product-visual ${product.imageClass || fallbackClass}`}>
+      <div className="shirt-shape">
+        <div className="shirt-neck" />
+        <div className="shirt-body">
+          <span>DRES</span>
+          <strong>26</strong>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function formatVersion(value) {
+  if (!value) {
+    return null;
+  }
+
+  const labelMap = {
+    authentic: 'Authentic',
+    fan: 'Fan',
+  };
+
+  return labelMap[value] || value;
+}
+
 function App() {
   const hasClerk = Boolean(import.meta.env.VITE_CLERK_PUBLISHABLE_KEY);
+  const baseUrl = (import.meta.env.BASE_URL || '/').replace(/\/$/, '');
+  const studioPath = `${baseUrl}/studio`;
+  const [products, setProducts] = useState(fallbackProducts);
+  const [isSanityLoading, setIsSanityLoading] = useState(true);
+  const [sanityError, setSanityError] = useState('');
+
+  useEffect(() => {
+    let isActive = true;
+
+    async function loadProducts() {
+      try {
+        const sanityProducts = await sanityClient.fetch(productQuery);
+
+        if (!isActive || !Array.isArray(sanityProducts) || sanityProducts.length === 0) {
+          return;
+        }
+
+        setProducts(sanityProducts);
+      } catch (error) {
+        if (!isActive) {
+          return;
+        }
+
+        setSanityError('Sanity trenutno ni povezan, zato je prikazan demo katalog.');
+      } finally {
+        if (isActive) {
+          setIsSanityLoading(false);
+        }
+      }
+    }
+
+    loadProducts();
+
+    return () => {
+      isActive = false;
+    };
+  }, []);
 
   return (
     <div className="page-shell">
@@ -110,6 +218,9 @@ function App() {
             <button className="icon-button" type="button" aria-label="Kosarica">
               Bag
             </button>
+            <a className="studio-link" href={studioPath}>
+              Studio
+            </a>
             {hasClerk ? (
               <AuthControls />
             ) : (
@@ -131,7 +242,7 @@ function App() {
         <section className="heading-row">
           <div>
             <p className="eyebrow">Clothing / Tops &amp; Jerseys</p>
-            <h1>T-Shirts &amp; Tops For Men (731)</h1>
+            <h1>T-Shirts &amp; Tops For Men</h1>
           </div>
 
           <div className="heading-actions">
@@ -160,28 +271,35 @@ function App() {
             </div>
           </aside>
 
-          <section className="product-grid">
-            {products.map((product) => (
-              <article className="product-card" key={product.name}>
-                <div className={`product-visual ${product.imageClass}`}>
-                  <div className="shirt-shape">
-                    <div className="shirt-neck" />
-                    <div className="shirt-body">
-                      <span>DRES</span>
-                      <strong>26</strong>
-                    </div>
-                  </div>
-                </div>
+          <section className="product-grid" id="shop">
+            {products.map((product, index) => (
+              <article className="product-card" key={product._id || product.name}>
+                <ProductVisual product={product} index={index} />
 
                 <div className="product-copy">
-                  <p className="tag">{product.tag}</p>
-                  <h2>{product.name}</h2>
-                  <p className="description">{product.description}</p>
-                  <p className="price">{product.price}</p>
+                  <p className="tag">{product.league || 'Liga'}</p>
+                  <h2>{product.club}</h2>
+                  <p className="description">{product.description || 'Opis dodaj v Sanity Studio.'}</p>
+                  <p className="product-meta">
+                    {product.club ? <span>{product.club}</span> : null}
+                    {product.league ? <span>{product.league}</span> : null}
+                    {product.version ? <span>{formatVersion(product.version)}</span> : null}
+                    {product.size ? <span>{product.size}</span> : null}
+                  </p>
+                  <p className="price">{formatPrice(product.price) || 'Cena v pripravi'}</p>
                 </div>
               </article>
             ))}
           </section>
+        </section>
+
+        <section className="sanity-status">
+          <p>
+            {isSanityLoading
+              ? 'Nalagam izdelke iz Sanity...'
+              : 'Sanity Studio je pripravljen na poti /studio.'}
+          </p>
+          {sanityError ? <p>{sanityError}</p> : null}
         </section>
       </main>
     </div>
