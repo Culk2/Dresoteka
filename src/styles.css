@@ -47,11 +47,14 @@ input {
 .logo-lockup {
   display: flex;
   flex-direction: column;
+  justify-content: center;
 }
 
-.logo-word {
-  font-size: 30px;
-  font-weight: 800;
+.logo-image {
+  display: block;
+  height: 42px;
+  width: auto;
+  object-fit: contain;
 }
 
 .nav-tools {
@@ -196,14 +199,39 @@ h1 {
   border-top: 1px solid #dddddd;
 }
 
-.filter-item {
-  width: 100%;
-  padding: 18px 0;
-  display: flex;
-  justify-content: space-between;
-  border: 0;
+.filter-group {
   border-bottom: 1px solid #dddddd;
-  background: transparent;
+  padding: 18px 0;
+}
+
+.filter-label {
+  display: inline-block;
+  margin-bottom: 10px;
+  font-weight: 700;
+}
+
+.filter-select-wrap {
+  position: relative;
+}
+
+.filter-select {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 14px;
+  border-radius: 12px;
+  background: #ffffff;
+  border: 1px solid #dddddd;
+  color: #111111;
+}
+
+.empty-state {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 18px;
+  border: 1px solid #dddddd;
+  border-radius: 16px;
+  background: #ffffff;
+  color: #555555;
 }
 
 .product-grid {

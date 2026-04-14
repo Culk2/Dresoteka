@@ -3,22 +3,13 @@ import { Show, SignInButton, SignUpButton, UserButton, useAuth } from '@clerk/re
 import { sanityClient } from './lib/sanityClient';
 import { urlFor } from './lib/sanityImage';
 
-const sidebarLinks = [
-  'Match dresi',
-  'Retro dresi',
-  'Trening majice',
-  'Dolg rokav',
-  'Brez rokavov',
-  'Kompleti',
-  'Lifestyle',
-];
-
-const filterGroups = ['Spol', 'Cena', 'Akcije', 'Velikost', 'Kolekcije'];
-
 const fallbackProducts = [
   {
     _id: 'fallback-france',
-    badge: 'Najbolj prodajano',
+    club: 'Francija',
+    league: 'International',
+    size: 'M',
+    version: 'authentic',
     name: 'Francija 2026 Home Jersey',
     description: 'Tekmovalna verzija dresa',
     price: 129.99,
@@ -26,7 +17,10 @@ const fallbackProducts = [
   },
   {
     _id: 'fallback-england',
-    badge: 'Novo',
+    club: 'England',
+    league: 'International',
+    size: 'L',
+    version: 'fan',
     name: 'England 2026 Away Jersey',
     description: 'Navijaska verzija dresa',
     price: 99.99,
@@ -34,7 +28,10 @@ const fallbackProducts = [
   },
   {
     _id: 'fallback-brazil',
-    badge: 'Reciklirani materiali',
+    club: 'Brazil',
+    league: 'International',
+    size: 'S',
+    version: 'authentic',
     name: 'Brazil 2026 Match Away',
     description: 'Avtenticen nogometni dres',
     price: 139.99,
@@ -42,7 +39,10 @@ const fallbackProducts = [
   },
   {
     _id: 'fallback-barcelona',
-    badge: 'Omejena serija',
+    club: 'Barcelona',
+    league: 'La Liga',
+    size: 'XL',
+    version: 'fan',
     name: 'Barcelona Heritage Jersey',
     description: 'Retro navijaski kos',
     price: 109.99,
@@ -50,7 +50,10 @@ const fallbackProducts = [
   },
   {
     _id: 'fallback-milan',
-    badge: 'Just In',
+    club: 'AC Milan',
+    league: 'Serie A',
+    size: 'L',
+    version: 'authentic',
     name: 'AC Milan Fourth Kit',
     description: 'Streetwear kolekcija',
     price: 119.99,
@@ -58,7 +61,10 @@ const fallbackProducts = [
   },
   {
     _id: 'fallback-slovenija',
-    badge: 'Samo online',
+    club: 'Slovenija',
+    league: 'International',
+    size: 'M',
+    version: 'fan',
     name: 'Slovenija Stadium Jersey',
     description: 'Lahka supporter izdaja',
     price: 89.99,
@@ -68,6 +74,7 @@ const fallbackProducts = [
 
 const productQuery = `*[_type == "product"] | order(_createdAt desc)[0...12]{
   _id,
+  "name": coalesce(title, club->name),
   "club": club->name,
   size,
   version,
@@ -113,7 +120,6 @@ function AuthControls() {
       </Show>
       <Show when="signed-in">
         <div className="user-actions">
-          <span className="auth-status">Prijavljen uporabnik</span>
           <UserButton />
         </div>
       </Show>
@@ -162,6 +168,99 @@ function formatVersion(value) {
   return labelMap[value] || value;
 }
 
+function getPriceOptions(prices) {
+  if (prices.length === 0) {
+    return [];
+  }
+
+  const minPrice = Math.min(...prices);
+  const maxPrice = Math.max(...prices);
+
+  if (minPrice === maxPrice) {
+    const label = formatPrice(minPrice);
+
+    return [{ label, value: `${minPrice}-${maxPrice}` }];
+  }
+
+  const step = Math.ceil((maxPrice - minPrice) / 3);
+  const ranges = [
+    { min: minPrice, max: minPrice + step, label: `Do ${formatPrice(minPrice + step)}` },
+    { min: minPrice + step, max: minPrice + step * 2, label: `${formatPrice(minPrice + step)} - ${formatPrice(minPrice + step * 2)}` },
+    { min: minPrice + step * 2, max: maxPrice, label: `Nad ${formatPrice(minPrice + step * 2)}` },
+  ];
+
+  return ranges
+    .filter((range, index) => index === ranges.length - 1 || range.min < range.max)
+    .map((range) => ({
+      label: range.label,
+      value: `${range.min}-${range.max}`,
+    }));
+}
+
+function getFilterGroups(products) {
+  const clubs = [...new Set(products.map((product) => product.club).filter(Boolean))];
+  const leagues = [...new Set(products.map((product) => product.league).filter(Boolean))];
+  const versions = [...new Set(products.map((product) => formatVersion(product.version)).filter(Boolean))];
+  const sizes = [...new Set(products.map((product) => product.size).filter(Boolean))];
+  const prices = products
+    .map((product) => product.price)
+    .filter((price) => typeof price === 'number');
+
+  const groups = [
+    { key: 'club', label: 'Klub', options: clubs },
+    { key: 'league', label: 'Liga', options: leagues },
+    { key: 'version', label: 'Verzija', options: versions },
+    { key: 'size', label: 'Velikost', options: sizes },
+  ];
+
+  if (prices.length > 0) {
+    groups.push({
+      key: 'price',
+      label: 'Cena',
+      options: getPriceOptions(prices),
+    });
+  }
+
+  return groups.filter((group) => group.options.length > 0);
+}
+
+function matchesPriceFilter(product, value) {
+  if (!value || typeof product.price !== 'number') {
+    return true;
+  }
+
+  const [min, max] = value.split('-').map(Number);
+
+  if (Number.isNaN(min) || Number.isNaN(max)) {
+    return true;
+  }
+
+  return product.price >= min && product.price <= max;
+}
+
+function formatSanityError(error) {
+  const message = typeof error?.message === 'string' ? error.message : '';
+  const lowerMessage = message.toLowerCase();
+
+  if (lowerMessage.includes('cors')) {
+    return 'Sanity ni povezan. Dodaj svoj Vercel URL v Sanity CORS Origins.';
+  }
+
+  if (lowerMessage.includes('permission') || lowerMessage.includes('unauthorized')) {
+    return 'Sanity ni povezan. Dataset je verjetno privaten in frontend nima dovoljenja za branje.';
+  }
+
+  if (lowerMessage.includes('project') || lowerMessage.includes('dataset')) {
+    return 'Sanity ni povezan. Preveri `VITE_SANITY_PROJECT_ID` in `VITE_SANITY_DATASET` na Vercelu.';
+  }
+
+  if (message) {
+    return `Sanity ni povezan: ${message}`;
+  }
+
+  return 'Sanity trenutno ni povezan, zato je prikazan demo katalog.';
+}
+
 function App() {
   const hasClerk = Boolean(import.meta.env.VITE_CLERK_PUBLISHABLE_KEY);
   const baseUrl = (import.meta.env.BASE_URL || '/').replace(/\/$/, '');
@@ -169,6 +268,33 @@ function App() {
   const [products, setProducts] = useState(fallbackProducts);
   const [isSanityLoading, setIsSanityLoading] = useState(true);
   const [sanityError, setSanityError] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedFilters, setSelectedFilters] = useState({
+    club: '',
+    league: '',
+    version: '',
+    size: '',
+    price: '',
+  });
+  const filterGroups = getFilterGroups(products);
+  const filteredProducts = products.filter((product) => {
+    const formattedVersion = formatVersion(product.version);
+    const normalizedQuery = searchQuery.trim().toLowerCase();
+    const matchesSearch =
+      !normalizedQuery ||
+      [product.name, product.club, product.league, product.description, formattedVersion, product.size]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(normalizedQuery));
+
+    return (
+      matchesSearch &&
+      (!selectedFilters.club || product.club === selectedFilters.club) &&
+      (!selectedFilters.league || product.league === selectedFilters.league) &&
+      (!selectedFilters.version || formattedVersion === selectedFilters.version) &&
+      (!selectedFilters.size || product.size === selectedFilters.size) &&
+      matchesPriceFilter(product, selectedFilters.price)
+    );
+  });
 
   useEffect(() => {
     let isActive = true;
@@ -187,7 +313,7 @@ function App() {
           return;
         }
 
-        setSanityError('Sanity trenutno ni povezan, zato je prikazan demo katalog.');
+        setSanityError(formatSanityError(error));
       } finally {
         if (isActive) {
           setIsSanityLoading(false);
@@ -202,16 +328,29 @@ function App() {
     };
   }, []);
 
+  function handleFilterChange(key, value) {
+    setSelectedFilters((current) => ({
+      ...current,
+      [key]: value,
+    }));
+  }
+
   return (
     <div className="page-shell">
       <nav className="mainnav">
         <div className="mainnav-inner">
           <div className="logo-lockup">
-            <span className="logo-word">Dresoteka</span>
+            <img className="logo-image" src="/logo.png" alt="Dresoteka" />
           </div>
 
           <div className="nav-tools">
-            <input className="searchbox" type="text" placeholder="Isci drese" />
+            <input
+              className="searchbox"
+              type="search"
+              placeholder="Isci drese"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+            />
             <button className="icon-button" type="button" aria-label="Priljubljeno">
               Fav
             </button>
@@ -239,40 +378,41 @@ function App() {
       </section>
 
       <main className="content-shell">
-        <section className="heading-row">
-          <div>
-            <p className="eyebrow">Clothing / Tops &amp; Jerseys</p>
-            <h1>T-Shirts &amp; Tops For Men</h1>
-          </div>
-
-          <div className="heading-actions">
-            <button type="button">Hide Filters</button>
-            <button type="button">Sort By</button>
-          </div>
-        </section>
-
         <section className="catalog-layout">
           <aside className="sidebar">
-            <div className="sidebar-links">
-              {sidebarLinks.map((item) => (
-                <a key={item} href="#shop">
-                  {item}
-                </a>
-              ))}
-            </div>
-
             <div className="filter-list">
               {filterGroups.map((group) => (
-                <button className="filter-item" key={group} type="button">
-                  <span>{group}</span>
-                  <span>+</span>
-                </button>
+                <section className="filter-group" key={group.label}>
+                  <label className="filter-label" htmlFor={`filter-${group.key}`}>
+                    {group.label}
+                  </label>
+                  <div className="filter-select-wrap">
+                    <select
+                      className="filter-select"
+                      id={`filter-${group.key}`}
+                      value={selectedFilters[group.key]}
+                      onChange={(event) => handleFilterChange(group.key, event.target.value)}
+                    >
+                      <option value="">Vse</option>
+                      {group.options.map((option) => {
+                        const optionValue = typeof option === 'string' ? option : option.value;
+                        const optionLabel = typeof option === 'string' ? option : option.label;
+
+                        return (
+                          <option key={optionValue} value={optionValue}>
+                            {optionLabel}
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </div>
+                </section>
               ))}
             </div>
           </aside>
 
           <section className="product-grid" id="shop">
-            {products.map((product, index) => (
+            {filteredProducts.map((product, index) => (
               <article className="product-card" key={product._id || product.name}>
                 <ProductVisual product={product} index={index} />
 
@@ -290,17 +430,18 @@ function App() {
                 </div>
               </article>
             ))}
+            {filteredProducts.length === 0 ? (
+              <p className="empty-state">Za izbrane filtre ni najdenih izdelkov.</p>
+            ) : null}
           </section>
         </section>
 
-        <section className="sanity-status">
-          <p>
-            {isSanityLoading
-              ? 'Nalagam izdelke iz Sanity...'
-              : 'Sanity Studio je pripravljen na poti /studio.'}
-          </p>
-          {sanityError ? <p>{sanityError}</p> : null}
-        </section>
+        {isSanityLoading || sanityError ? (
+          <section className="sanity-status">
+            {isSanityLoading ? <p>Nalagam izdelke iz Sanity...</p> : null}
+            {sanityError ? <p>{sanityError}</p> : null}
+          </section>
+        ) : null}
       </main>
     </div>
   );
