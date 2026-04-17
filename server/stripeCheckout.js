@@ -82,6 +82,14 @@ function createStripeClient() {
   });
 }
 
+function getOrderDocumentId(sessionId) {
+  return `order-${String(sessionId).replace(/[^a-zA-Z0-9_-]/g, '-')}`;
+}
+
+function formatOrderNumber(sessionId) {
+  return `DRS-${String(sessionId).slice(-8).toUpperCase()}`;
+}
+
 function normalizeQuantity(value) {
   const quantity = Number(value);
 
@@ -181,3 +189,70 @@ export async function createCheckoutSession({ cartItems = [], customer = {}, ori
     },
   });
 }
+
+export async function getCheckoutSessionWithItems(sessionId) {
+  const stripe = createStripeClient();
+  const session = await stripe.checkout.sessions.retrieve(sessionId);
+  const lineItems = await stripe.checkout.sessions.listLineItems(sessionId, {
+    limit: 100,
+  });
+
+  return {
+    session,
+    lineItems: lineItems.data || [],
+  };
+}
+
+export async function upsertOrderInSanity({ session, lineItems }) {
+  const sanityClient = createSanityClient();
+  const orderId = getOrderDocumentId(session.id);
+  const doc = {
+    _id: orderId,
+    _type: 'order',
+    orderNumber: formatOrderNumber(session.id),
+    stripeSessionId: session.id,
+    status: 'v-pripravi',
+    paymentStatus: session.payment_status || 'unpaid',
+    customer: {
+      firstName: String(session.metadata?.firstName || ''),
+      lastName: String(session.metadata?.lastName || ''),
+      email: String(session.customer_details?.email || ''),
+      address: String(session.metadata?.address || ''),
+      postalCode: String(session.metadata?.postalCode || ''),
+      city: String(session.metadata?.city || ''),
+    },
+    items: lineItems.map((item) => ({
+      _key: `${item.id || item.description || 'item'}-${item.quantity || 1}`,
+      name: item.description || 'Izdelek',
+      quantity: item.quantity || 1,
+      unitPrice: typeof item.amount_total === 'number' && item.quantity
+        ? item.amount_total / item.quantity / 100
+        : typeof item.amount_subtotal === 'number' && item.quantity
+          ? item.amount_subtotal / item.quantity / 100
+          : 0,
+      currency: (item.currency || session.currency || 'eur').toUpperCase(),
+    })),
+    totalAmount: typeof session.amount_total === 'number' ? session.amount_total / 100 : 0,
+    currency: String(session.currency || 'eur').toUpperCase(),
+    createdAt: session.created ? new Date(session.created * 1000).toISOString() : new Date().toISOString(),
+  };
+
+  await sanityClient.createIfNotExists(doc);
+
+  return sanityClient.fetch(
+    `*[_type == "order" && _id == $id][0]{
+      _id,
+      orderNumber,
+      status,
+      paymentStatus,
+      totalAmount,
+      currency,
+      createdAt,
+      customer,
+      items
+    }`,
+    { id: orderId },
+  );
+}
+
+export { createSanityClient, getEnv, getOrderDocumentId, formatOrderNumber };

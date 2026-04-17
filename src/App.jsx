@@ -4,6 +4,9 @@ import { sanityClient } from './lib/sanityClient';
 import { urlFor } from './lib/sanityImage';
 
 const CART_STORAGE_KEY = 'dresoteka-cart';
+const ORDER_STORAGE_KEY = 'dresoteka-orders';
+const ORDER_DETAILS_STORAGE_KEY = 'dresoteka-order-details';
+const PENDING_ORDER_STORAGE_KEY = 'dresoteka-pending-order';
 
 const fallbackProducts = [
   {
@@ -106,6 +109,14 @@ const productDetailQuery = `*[_type == "product" && slug.current == $slug][0]{
   image
 }`;
 
+const orderProductImageQuery = `*[_type == "product"]{
+  _id,
+  "slug": slug.current,
+  "name": coalesce(title, club->name),
+  "club": club->name,
+  image
+}`;
+
 function formatPrice(value) {
   if (typeof value !== 'number') {
     return null;
@@ -155,6 +166,10 @@ function getCheckoutPath(baseUrl) {
   return `${baseUrl}/checkout`;
 }
 
+function getOrdersPath(baseUrl) {
+  return `${baseUrl}/narocila`;
+}
+
 function getCheckoutStatus(search) {
   const params = new URLSearchParams(search);
 
@@ -167,6 +182,10 @@ function getCheckoutStatus(search) {
   }
 
   return '';
+}
+
+function getCheckoutSessionId(search) {
+  return new URLSearchParams(search).get('session_id') || '';
 }
 
 function getImageUrl(product) {
@@ -191,6 +210,7 @@ function normalizeCartItem(product) {
     description: product.description || '',
     price: typeof product.price === 'number' ? product.price : 0,
     image: product.image || null,
+    imageUrl: getImageUrl(product),
     imageClass: product.imageClass || '',
     quantity: 1,
   };
@@ -226,10 +246,89 @@ function writeCart(items) {
   window.localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(items));
 }
 
+function readOrderIds() {
+  try {
+    const stored = window.localStorage.getItem(ORDER_STORAGE_KEY);
+
+    if (!stored) {
+      return [];
+    }
+
+    const parsed = JSON.parse(stored);
+
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed.filter((value) => typeof value === 'string' && value);
+  } catch {
+    return [];
+  }
+}
+
+function writeOrderIds(orderIds) {
+  window.localStorage.setItem(ORDER_STORAGE_KEY, JSON.stringify(orderIds));
+}
+
+function readOrderDetails() {
+  try {
+    const stored = window.localStorage.getItem(ORDER_DETAILS_STORAGE_KEY);
+
+    if (!stored) {
+      return [];
+    }
+
+    const parsed = JSON.parse(stored);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeOrderDetails(orders) {
+  window.localStorage.setItem(ORDER_DETAILS_STORAGE_KEY, JSON.stringify(orders));
+}
+
+function readPendingOrder() {
+  try {
+    const stored = window.localStorage.getItem(PENDING_ORDER_STORAGE_KEY);
+    return stored ? JSON.parse(stored) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writePendingOrder(order) {
+  window.localStorage.setItem(PENDING_ORDER_STORAGE_KEY, JSON.stringify(order));
+}
+
+function clearPendingOrder() {
+  window.localStorage.removeItem(PENDING_ORDER_STORAGE_KEY);
+}
+
+async function readJsonResponse(response, fallbackMessage) {
+  const responseText = await response.text();
+
+  if (!responseText) {
+    if (!response.ok) {
+      throw new Error(fallbackMessage);
+    }
+
+    return {};
+  }
+
+  try {
+    return JSON.parse(responseText);
+  } catch {
+    throw new Error(`${fallbackMessage} ${responseText.slice(0, 180)}`);
+  }
+}
+
 function parseRoute(pathname, baseUrl) {
   const normalizedBase = baseUrl || '';
   const cartPath = getCartPath(normalizedBase);
   const checkoutPath = getCheckoutPath(normalizedBase);
+  const ordersPath = getOrdersPath(normalizedBase);
   const productPrefix = `${normalizedBase}/dres/`;
 
   if (pathname === cartPath) {
@@ -238,6 +337,10 @@ function parseRoute(pathname, baseUrl) {
 
   if (pathname === checkoutPath) {
     return { kind: 'checkout' };
+  }
+
+  if (pathname === ordersPath) {
+    return { kind: 'orders' };
   }
 
   if (pathname.startsWith(productPrefix)) {
@@ -351,6 +454,75 @@ function getCartCount(cartItems) {
   return cartItems.reduce((sum, item) => sum + item.quantity, 0);
 }
 
+function formatOrderStatus(value) {
+  const labels = {
+    'v-pripravi': 'V pripravi',
+    odposlano: 'Odposlano',
+    dostavljeno: 'Dostavljeno',
+    preklicano: 'Preklicano',
+  };
+
+  return labels[value] || value || 'V pripravi';
+}
+
+function upsertOrderInList(orders, nextOrder) {
+  return [nextOrder, ...orders.filter((order) => order._id !== nextOrder._id)];
+}
+
+function enrichOrderWithItemImages(order, sourceOrder) {
+  if (!order || !sourceOrder) {
+    return order;
+  }
+
+  return {
+    ...order,
+    items: (order.items || []).map((item) => {
+      const matchingSourceItem = (sourceOrder.items || []).find((sourceItem) => {
+        const sourceKey = slugifyProduct(sourceItem.slug || sourceItem.name || '');
+        const itemKey = slugifyProduct(item.slug || item.name || '');
+
+        return sourceKey && itemKey ? sourceKey === itemKey : sourceItem.name === item.name;
+      });
+
+      if (!matchingSourceItem) {
+        return item;
+      }
+
+      return {
+        ...item,
+        imageUrl: matchingSourceItem.imageUrl || item.imageUrl || '',
+        imageClass: matchingSourceItem.imageClass || item.imageClass || '',
+        slug: matchingSourceItem.slug || item.slug || '',
+      };
+    }),
+  };
+}
+
+function buildLocalOrderFromPending(pendingOrder, sessionId) {
+  const suffix = (sessionId || `${Date.now()}`).slice(-8).toUpperCase();
+
+  return {
+    _id: `local-${sessionId || Date.now()}`,
+    orderNumber: `DRS-${suffix}`,
+    status: 'v-pripravi',
+    paymentStatus: 'paid',
+    totalAmount: pendingOrder.totalAmount || 0,
+    currency: 'EUR',
+    createdAt: new Date().toISOString(),
+      customer: pendingOrder.customer,
+      items: (pendingOrder.items || []).map((item, index) => ({
+        _key: `${item.slug || item.name || 'item'}-${index}`,
+        name: item.name,
+        quantity: item.quantity,
+        unitPrice: item.price,
+        currency: 'EUR',
+        imageUrl: item.imageUrl || '',
+        imageClass: item.imageClass || '',
+        slug: item.slug || '',
+      })),
+    };
+}
+
 function reconcileCartItems(cartItems, products) {
   if (!Array.isArray(products) || products.length === 0) {
     return cartItems;
@@ -443,10 +615,37 @@ function ProductVisual({ product, index }) {
   );
 }
 
+function OrderItemVisual({ item, index }) {
+  if (item.imageUrl) {
+    return (
+      <div className="order-item-thumb">
+        <img src={item.imageUrl} alt={item.name} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="order-item-thumb">
+      <ProductVisual product={{ imageClass: item.imageClass }} index={index} />
+    </div>
+  );
+}
+
 function CartButton({ count, href, onClick }) {
   return (
     <a className="icon-button cart-button" href={href} onClick={onClick} aria-label={`Kosarica, ${count} izdelkov`}>
-      <span>Bag</span>
+      <svg className="cart-icon" viewBox="0 0 24 24" aria-hidden="true">
+        <path
+          d="M3 4h2l2.2 9.2a1 1 0 0 0 1 .8h8.7a1 1 0 0 0 1-.8L20 7H7"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        <circle cx="10" cy="19" r="1.6" fill="currentColor" />
+        <circle cx="17" cy="19" r="1.6" fill="currentColor" />
+      </svg>
       {count > 0 ? <strong>{count}</strong> : null}
     </a>
   );
@@ -659,7 +858,204 @@ function CartPage({ cartItems, baseUrl, onNavigate, onUpdateQuantity, onRemoveIt
   );
 }
 
-function CheckoutPage({ cartItems, baseUrl, onNavigate, checkoutStatus }) {
+function OrdersPage({ orderIds, localOrders, products, baseUrl, onNavigate }) {
+  const [orders, setOrders] = useState(localOrders);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [orderProducts, setOrderProducts] = useState(products || []);
+
+  useEffect(() => {
+    let isActive = true;
+
+    async function loadOrderProducts() {
+      try {
+        const sanityProducts = await sanityClient.fetch(orderProductImageQuery);
+
+        if (isActive && Array.isArray(sanityProducts) && sanityProducts.length > 0) {
+          setOrderProducts(sanityProducts);
+        }
+      } catch {
+        if (isActive) {
+          setOrderProducts(products || []);
+        }
+      }
+    }
+
+    loadOrderProducts();
+
+    return () => {
+      isActive = false;
+    };
+  }, [products]);
+
+  const productMap = useMemo(() => {
+    return new Map(
+      (orderProducts || []).flatMap((product) => {
+        const entries = [];
+        const slug = slugifyProduct(getProductSlug(product));
+        const name = slugifyProduct(product.name || '');
+        const club = slugifyProduct(product.club || '');
+
+        if (slug) {
+          entries.push([slug, product]);
+        }
+
+        if (name) {
+          entries.push([name, product]);
+        }
+
+        if (club) {
+          entries.push([club, product]);
+        }
+
+        return entries;
+      }),
+    );
+  }, [orderProducts]);
+
+  useEffect(() => {
+    let isActive = true;
+
+    async function loadOrders() {
+      if (orderIds.length === 0) {
+        if (isActive) {
+          setOrders(localOrders);
+          setIsLoading(false);
+        }
+        return;
+      }
+
+      try {
+        const response = await fetch(`/api/orders?ids=${encodeURIComponent(orderIds.join(','))}`);
+        const data = await readJsonResponse(response, 'API za narocila ni vrnil veljavnega JSON odgovora.');
+
+        if (!response.ok) {
+          throw new Error(data.error || 'Nalaganje narocil ni uspelo.');
+        }
+
+        if (isActive) {
+          const remoteOrders = Array.isArray(data.orders) ? data.orders : [];
+          const mergedOrders = remoteOrders.map((order) => {
+            const matchingLocalOrder = localOrders.find((entry) => entry._id === order._id);
+            return matchingLocalOrder ? enrichOrderWithItemImages(order, matchingLocalOrder) : order;
+          });
+
+          localOrders.forEach((order) => {
+            if (!mergedOrders.some((entry) => entry._id === order._id)) {
+              mergedOrders.push(order);
+            }
+          });
+
+          setOrders(mergedOrders);
+        }
+      } catch (loadError) {
+        if (isActive) {
+          setOrders(localOrders);
+          setError(loadError.message || 'Nalaganje narocil ni uspelo.');
+        }
+      } finally {
+        if (isActive) {
+          setIsLoading(false);
+        }
+      }
+    }
+
+    loadOrders();
+
+    return () => {
+      isActive = false;
+    };
+  }, [localOrders, orderIds]);
+
+  return (
+    <main className="content-shell">
+      <section className="page-intro">
+        <p className="tag">Narocila</p>
+        <h1>Moja narocila</h1>
+        <p className="section-copy">Na tej strani kupec vidi status narocila in vsebino paketa.</p>
+      </section>
+
+      {isLoading ? (
+        <section className="empty-panel">
+          <p>Nalagam narocila...</p>
+        </section>
+      ) : null}
+
+      {!isLoading && error ? (
+        <section className="empty-panel">
+          <p>{error}</p>
+        </section>
+      ) : null}
+
+      {!isLoading && !error && orders.length === 0 ? (
+        <section className="empty-panel">
+          <p>Se ni shranjenih narocil.</p>
+          <button className="primary-button" type="button" onClick={() => onNavigate(baseUrl || '/')}>
+            Nazaj v trgovino
+          </button>
+        </section>
+      ) : null}
+
+      {!isLoading && !error && orders.length > 0 ? (
+        <section className="orders-list">
+          {orders.map((order) => (
+            <article className="order-card" key={order._id}>
+              <div className="order-card-top">
+                <div>
+                  <p className="tag">{order.orderNumber || 'Narocilo'}</p>
+                  <h2>
+                    {order.customer?.firstName || ''} {order.customer?.lastName || ''}
+                  </h2>
+                </div>
+                <span className={`status-pill status-pill-${order.status || 'v-pripravi'}`}>
+                  {formatOrderStatus(order.status)}
+                </span>
+              </div>
+
+              <div className="order-meta">
+                <span>Plačilo: {order.paymentStatus || 'paid'}</span>
+                <span>Skupaj: {formatPrice(order.totalAmount) || '-'}</span>
+                <span>
+                  Ustvarjeno: {order.createdAt ? new Date(order.createdAt).toLocaleString('sl-SI') : '-'}
+                </span>
+              </div>
+
+              <div className="order-items">
+                {(order.items || []).map((item, index) => {
+                  const matchingProduct =
+                    productMap.get(slugifyProduct(item.slug || '')) ||
+                    productMap.get(slugifyProduct(item.name || ''));
+
+                  return (
+                  <div className="order-item-row" key={item._key || `${item.name}-${item.quantity}`}>
+                    <OrderItemVisual item={matchingProduct || item} index={index} />
+                    <div className="summary-row order-item-copy">
+                      <span>
+                        {item.name} x {item.quantity}
+                      </span>
+                      <strong>{formatPrice(item.unitPrice * item.quantity) || '-'}</strong>
+                    </div>
+                  </div>
+                  );
+                })}
+              </div>
+            </article>
+          ))}
+        </section>
+      ) : null}
+    </main>
+  );
+}
+
+function CheckoutPage({
+  cartItems,
+  baseUrl,
+  onNavigate,
+  checkoutStatus,
+  checkoutSessionId,
+  onOrderConfirmed,
+  pendingOrder,
+}) {
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
@@ -670,8 +1066,73 @@ function CheckoutPage({ cartItems, baseUrl, onNavigate, checkoutStatus }) {
   const [errors, setErrors] = useState({});
   const [submitError, setSubmitError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isConfirmingOrder, setIsConfirmingOrder] = useState(false);
+  const [confirmedOrder, setConfirmedOrder] = useState(null);
 
   const total = getCartTotal(cartItems);
+
+  useEffect(() => {
+    let isActive = true;
+
+    async function confirmPaidOrder() {
+      if (checkoutStatus !== 'success' || !checkoutSessionId) {
+        return;
+      }
+
+      try {
+        setIsConfirmingOrder(true);
+        setSubmitError('');
+
+        const controller = new AbortController();
+        const timeoutId = window.setTimeout(() => controller.abort(), 8000);
+
+        const response = await fetch('/api/confirm-order', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          signal: controller.signal,
+          body: JSON.stringify({
+            sessionId: checkoutSessionId,
+          }),
+        });
+        window.clearTimeout(timeoutId);
+        const data = await readJsonResponse(
+          response,
+          'API za potrditev narocila ni vrnil veljavnega JSON odgovora.',
+        );
+
+        if (!response.ok || !data.order?._id) {
+          throw new Error(data.error || 'Narocila po placilu ni bilo mogoce potrditi.');
+        }
+
+        if (isActive) {
+          setConfirmedOrder(data.order);
+          onOrderConfirmed(data.order);
+        }
+      } catch (error) {
+        if (isActive) {
+          if (pendingOrder) {
+            const fallbackOrder = buildLocalOrderFromPending(pendingOrder, checkoutSessionId);
+            setConfirmedOrder(fallbackOrder);
+            onOrderConfirmed(fallbackOrder);
+          } else {
+            setSubmitError(error.message || 'Potrditev narocila ni uspela.');
+          }
+        }
+      } finally {
+        if (isActive) {
+          setIsConfirmingOrder(false);
+        }
+      }
+    }
+
+    confirmPaidOrder();
+
+    return () => {
+      isActive = false;
+    };
+  }, [checkoutSessionId, checkoutStatus, onOrderConfirmed]);
 
   function handleChange(event) {
     const { name, value } = event.target;
@@ -721,6 +1182,19 @@ function CheckoutPage({ cartItems, baseUrl, onNavigate, checkoutStatus }) {
 
     try {
       setIsSubmitting(true);
+
+        writePendingOrder({
+          customer: formData,
+          items: cartItems.map((item) => ({
+            slug: slugifyProduct(item.slug || item.name || item.club || ''),
+            name: item.name,
+            quantity: item.quantity,
+            price: item.price,
+            imageUrl: item.imageUrl || '',
+            imageClass: item.imageClass || '',
+          })),
+          totalAmount: total,
+        });
 
       const response = await fetch('/api/create-checkout-session', {
         method: 'POST',
@@ -774,10 +1248,19 @@ function CheckoutPage({ cartItems, baseUrl, onNavigate, checkoutStatus }) {
         <section className="success-panel">
           <p className="tag">Placilo uspelo</p>
           <h1>Hvala za nakup.</h1>
-          <p>Narocilo je bilo uspesno oddano in kosarica je izpraznjena.</p>
-          <button className="primary-button" type="button" onClick={() => onNavigate(baseUrl || '/')}>
-            Nazaj na zacetek
-          </button>
+          {isConfirmingOrder ? <p>Pripravljam narocilo in status za pregled...</p> : null}
+          {!isConfirmingOrder && confirmedOrder ? (
+            <>
+              <p>
+                Narocilo {confirmedOrder.orderNumber} je ustvarjeno. Trenutni status je{' '}
+                {formatOrderStatus(confirmedOrder.status)}.
+              </p>
+              <button className="primary-button" type="button" onClick={() => onNavigate(getOrdersPath(baseUrl))}>
+                Poglej narocila
+              </button>
+            </>
+          ) : null}
+          {!isConfirmingOrder && submitError ? <p className="form-status form-status-error">{submitError}</p> : null}
         </section>
       </main>
     );
@@ -887,11 +1370,15 @@ function App() {
   const [search, setSearch] = useState(window.location.search);
   const route = parseRoute(pathname, baseUrl);
   const checkoutStatus = getCheckoutStatus(search);
+  const checkoutSessionId = getCheckoutSessionId(search);
   const [products, setProducts] = useState(fallbackProducts);
   const [isSanityLoading, setIsSanityLoading] = useState(true);
   const [sanityError, setSanityError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [cartItems, setCartItems] = useState(() => readCart());
+  const [orderIds, setOrderIds] = useState(() => readOrderIds());
+  const [localOrders, setLocalOrders] = useState(() => readOrderDetails());
+  const [pendingOrder] = useState(() => readPendingOrder());
   const [selectedFilters, setSelectedFilters] = useState({
     club: '',
     league: '',
@@ -918,6 +1405,14 @@ function App() {
   }, [cartItems]);
 
   useEffect(() => {
+    writeOrderIds(orderIds);
+  }, [orderIds]);
+
+  useEffect(() => {
+    writeOrderDetails(localOrders);
+  }, [localOrders]);
+
+  useEffect(() => {
     if (route.kind === 'product' || products.length === 0) {
       return;
     }
@@ -932,13 +1427,6 @@ function App() {
       return reconciled;
     });
   }, [products, route.kind]);
-
-  useEffect(() => {
-    if (checkoutStatus === 'success') {
-      setCartItems([]);
-      onCheckoutComplete();
-    }
-  }, [checkoutStatus]);
 
   useEffect(() => {
     let isActive = true;
@@ -1017,19 +1505,16 @@ function App() {
     route.kind === 'product' ? products.find((product) => getProductSlug(product) === route.slug) : null;
   const cartCount = getCartCount(cartItems);
 
-  function onCheckoutComplete() {
-    const params = new URLSearchParams(window.location.search);
+  function handleOrderConfirmed(order) {
+    setCartItems([]);
+    setOrderIds((current) => [order._id, ...current.filter((value) => value !== order._id)]);
+    setLocalOrders((current) => {
+      const pendingOrderDetails = readPendingOrder();
+      const enrichedOrder = pendingOrderDetails ? enrichOrderWithItemImages(order, pendingOrderDetails) : order;
 
-    if (!params.has('checkout')) {
-      return;
-    }
-
-    params.delete('checkout');
-    params.delete('session_id');
-    const nextSearch = params.toString();
-    const nextUrl = `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ''}`;
-    window.history.replaceState({}, '', nextUrl);
-    setSearch(nextSearch ? `?${nextSearch}` : '');
+      return upsertOrderInList(current, enrichedOrder);
+    });
+    clearPendingOrder();
   }
 
   function navigate(path) {
@@ -1104,13 +1589,13 @@ function App() {
               value={searchQuery}
               onChange={(event) => setSearchQuery(event.target.value)}
             />
-            <button className="icon-button" type="button" aria-label="Priljubljeno">
-              Fav
-            </button>
             <CartButton count={cartCount} href={getCartPath(baseUrl)} onClick={(event) => {
               event.preventDefault();
               navigate(getCartPath(baseUrl));
             }} />
+            <button className="icon-button" type="button" onClick={() => navigate(getOrdersPath(baseUrl))}>
+              Narocila
+            </button>
             <a className="studio-link" href={studioPath}>
               Studio
             </a>
@@ -1166,6 +1651,19 @@ function App() {
           baseUrl={baseUrl}
           onNavigate={navigate}
           checkoutStatus={checkoutStatus}
+          checkoutSessionId={checkoutSessionId}
+          onOrderConfirmed={handleOrderConfirmed}
+          pendingOrder={pendingOrder}
+        />
+      ) : null}
+
+      {route.kind === 'orders' ? (
+        <OrdersPage
+          orderIds={orderIds}
+          localOrders={localOrders}
+          products={products}
+          baseUrl={baseUrl}
+          onNavigate={navigate}
         />
       ) : null}
 

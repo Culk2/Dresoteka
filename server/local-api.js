@@ -1,5 +1,6 @@
 import express from 'express';
 import { createCheckoutSession } from './stripeCheckout.js';
+import { confirmOrder, getOrdersByIds } from './ordersStore.js';
 
 const app = express();
 const port = Number(process.env.LOCAL_API_PORT || 3001);
@@ -22,6 +23,40 @@ app.post('/api/create-checkout-session', async (req, res) => {
   } catch (error) {
     res.status(500).json({
       error: error instanceof Error ? error.message : 'Stripe checkout error.',
+    });
+  }
+});
+
+app.post('/api/confirm-order', async (req, res) => {
+  try {
+    const sessionId = String(req.body?.sessionId || '').trim();
+
+    if (!sessionId) {
+      return res.status(400).json({ error: 'Missing sessionId.' });
+    }
+
+    const result = await confirmOrder(sessionId);
+    return res.status(200).json(result);
+  } catch (error) {
+    return res.status(500).json({
+      error: error instanceof Error ? error.message : 'Order confirmation error.',
+    });
+  }
+});
+
+app.get('/api/orders', async (req, res) => {
+  try {
+    const rawIds = String(req.query.ids || '');
+    const ids = rawIds
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean);
+
+    const orders = await getOrdersByIds(ids);
+    return res.status(200).json({ orders });
+  } catch (error) {
+    return res.status(500).json({
+      error: error instanceof Error ? error.message : 'Orders fetch error.',
     });
   }
 });
