@@ -32,10 +32,11 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { cartItems = [], customer = {} } = parseBody(req);
+    const { cartItems = [], customer = {}, clerkUserId = '' } = parseBody(req);
     const session = await createCheckoutSession({
       cartItems,
       customer,
+      clerkUserId,
       origin: getOrigin(req),
     });
 
