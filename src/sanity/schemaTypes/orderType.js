@@ -44,6 +44,12 @@ export const orderType = defineType({
       type: 'string',
     }),
     defineField({
+      name: 'emailDelivered',
+      title: 'Email Delivered',
+      type: 'boolean',
+      initialValue: false,
+    }),
+    defineField({
       name: 'customer',
       title: 'Customer',
       type: 'object',

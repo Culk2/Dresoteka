@@ -41,6 +41,7 @@ function toLocalOrder({ session, lineItems }) {
     _id: getOrderDocumentId(session.id),
     orderNumber: formatOrderNumber(session.id),
     clerkUserId: String(session.metadata?.clerkUserId || ''),
+    emailDelivered: false,
     status: 'v-pripravi',
     paymentStatus: session.payment_status || 'unpaid',
     totalAmount: typeof session.amount_total === 'number' ? session.amount_total / 100 : 0,
@@ -69,6 +70,50 @@ function toLocalOrder({ session, lineItems }) {
   };
 }
 
+async function markOrderEmailDelivered(orderId) {
+  const normalizedId = String(orderId || '').trim();
+
+  if (!normalizedId) {
+    return null;
+  }
+
+  try {
+    const { createSanityClient } = await import('./stripeCheckout.js');
+    const client = createSanityClient();
+
+    await client.patch(normalizedId).set({ emailDelivered: true }).commit();
+
+    return client.fetch(
+      `*[_type == "order" && _id == $id][0]{
+        _id,
+        orderNumber,
+        status,
+        paymentStatus,
+        emailDelivered,
+        clerkUserId,
+        totalAmount,
+        currency,
+        createdAt,
+        customer,
+        items
+      }`,
+      { id: normalizedId },
+    );
+  } catch {
+    const current = readOrders();
+    const existing = current.find((order) => order._id === normalizedId);
+
+    if (!existing) {
+      return null;
+    }
+
+    const updatedOrder = { ...existing, emailDelivered: true };
+    const remaining = current.filter((order) => order._id !== normalizedId);
+    writeOrders([updatedOrder, ...remaining]);
+    return updatedOrder;
+  }
+}
+
 export async function confirmOrder(sessionId) {
   const { session, lineItems } = await getCheckoutSessionWithItems(sessionId);
 
@@ -79,10 +124,18 @@ export async function confirmOrder(sessionId) {
   try {
     const sanityOrder = await upsertOrderInSanity({ session, lineItems });
 
-    try {
-      await sendOrderConfirmationEmail({ order: sanityOrder, sessionId: session.id });
-    } catch (error) {
-      console.error('Order confirmation email failed:', error);
+    if (!sanityOrder?.emailDelivered) {
+      try {
+        await sendOrderConfirmationEmail({ order: sanityOrder, sessionId: session.id });
+        const deliveredOrder = await markOrderEmailDelivered(sanityOrder._id);
+
+        return {
+          order: deliveredOrder || { ...sanityOrder, emailDelivered: true },
+          source: 'sanity',
+        };
+      } catch (error) {
+        console.error('Order confirmation email failed:', error);
+      }
     }
 
     return {
@@ -97,10 +150,18 @@ export async function confirmOrder(sessionId) {
     const remaining = current.filter((order) => order._id !== nextOrder._id);
     writeOrders([merged, ...remaining]);
 
-    try {
-      await sendOrderConfirmationEmail({ order: merged, sessionId: session.id });
-    } catch (error) {
-      console.error('Order confirmation email failed:', error);
+    if (!merged?.emailDelivered) {
+      try {
+        await sendOrderConfirmationEmail({ order: merged, sessionId: session.id });
+        const deliveredOrder = await markOrderEmailDelivered(merged._id);
+
+        return {
+          order: deliveredOrder || { ...merged, emailDelivered: true },
+          source: 'local',
+        };
+      } catch (error) {
+        console.error('Order confirmation email failed:', error);
+      }
     }
 
     return {
@@ -127,6 +188,7 @@ export async function getOrdersByIds(ids) {
         orderNumber,
         status,
         paymentStatus,
+        emailDelivered,
         clerkUserId,
         totalAmount,
         currency,
@@ -153,6 +215,7 @@ export async function getAllOrders() {
         orderNumber,
         status,
         paymentStatus,
+        emailDelivered,
         clerkUserId,
         totalAmount,
         currency,
@@ -193,6 +256,7 @@ export async function updateOrderStatus(orderId, status) {
         orderNumber,
         status,
         paymentStatus,
+        emailDelivered,
         clerkUserId,
         totalAmount,
         currency,
@@ -234,6 +298,7 @@ export async function getOrdersByClerkUserId(clerkUserId) {
         orderNumber,
         status,
         paymentStatus,
+        emailDelivered,
         clerkUserId,
         totalAmount,
         currency,

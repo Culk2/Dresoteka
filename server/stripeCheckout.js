@@ -218,6 +218,7 @@ export async function upsertOrderInSanity({ session, lineItems }) {
     orderNumber: formatOrderNumber(session.id),
     stripeSessionId: session.id,
     clerkUserId: String(session.metadata?.clerkUserId || ''),
+    emailDelivered: false,
     status: 'v-pripravi',
     paymentStatus: session.payment_status || 'unpaid',
     customer: {
@@ -252,6 +253,7 @@ export async function upsertOrderInSanity({ session, lineItems }) {
       orderNumber,
       status,
       paymentStatus,
+      emailDelivered,
       clerkUserId,
       totalAmount,
       currency,

@@ -1577,7 +1577,19 @@ function App() {
         return;
       }
 
+      const confirmationKey = `dresoteka-confirmed-session:${checkoutSessionId}`;
+
+      if (window.sessionStorage.getItem(confirmationKey) === 'done') {
+        if (isActive) {
+          window.history.replaceState({}, '', baseUrl || '/');
+          setPathname(window.location.pathname);
+          setSearch('');
+        }
+        return;
+      }
+
       try {
+        window.sessionStorage.setItem(confirmationKey, 'pending');
         const controller = new AbortController();
         const timeoutId = window.setTimeout(() => controller.abort(), 8000);
         const response = await fetch('/api/confirm-order', {
@@ -1602,10 +1614,12 @@ function App() {
         }
 
         if (isActive) {
+          window.sessionStorage.setItem(confirmationKey, 'done');
           handleOrderConfirmed(data.order);
           setSuccessPopupOrder(data.order);
         }
       } catch (error) {
+        window.sessionStorage.removeItem(confirmationKey);
         if (isActive && pendingOrder) {
           const fallbackOrder = buildLocalOrderFromPending(pendingOrder, checkoutSessionId);
           handleOrderConfirmed(fallbackOrder);
