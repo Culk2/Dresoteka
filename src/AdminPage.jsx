@@ -1,5 +1,6 @@
 import React from 'react';
 import { SignInButton, UserButton, useAuth } from '@clerk/react';
+import { jsPDF } from 'jspdf';
 
 function formatPrice(value, currency = 'EUR') {
   if (typeof value !== 'number' || Number.isNaN(value)) {
@@ -36,6 +37,112 @@ const STATUS_SECTIONS = [
   { key: 'odposlano', title: 'Odposlano' },
   { key: 'prevzeto', title: 'Prevzeto' },
 ];
+
+function getCustomerName(order) {
+  return `${order.customer?.firstName || ''} ${order.customer?.lastName || ''}`.trim() || 'Neznana stranka';
+}
+
+function getBestSellingProduct(orders) {
+  const quantities = new Map();
+
+  orders.forEach((order) => {
+    (order.items || []).forEach((item) => {
+      const name = String(item.name || 'Neznan dres').trim() || 'Neznan dres';
+      quantities.set(name, (quantities.get(name) || 0) + Number(item.quantity || 0));
+    });
+  });
+
+  let best = null;
+
+  quantities.forEach((quantity, name) => {
+    if (!best || quantity > best.quantity) {
+      best = { name, quantity };
+    }
+  });
+
+  return best;
+}
+
+function exportOrdersPdf(orders) {
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const maxWidth = pageWidth - 24;
+  let cursorY = 18;
+
+  function ensureSpace(heightNeeded = 8) {
+    if (cursorY + heightNeeded <= pageHeight - 16) {
+      return;
+    }
+
+    doc.addPage();
+    cursorY = 18;
+  }
+
+  function addText(text, options = {}) {
+    const { size = 11, weight = 'normal', gap = 6 } = options;
+    doc.setFont('helvetica', weight);
+    doc.setFontSize(size);
+    const lines = doc.splitTextToSize(String(text), maxWidth);
+    const lineHeight = size * 0.45 * lines.length + gap;
+    ensureSpace(lineHeight);
+    doc.text(lines, 12, cursorY);
+    cursorY += lineHeight;
+  }
+
+  const totalRevenue = orders.reduce((sum, order) => sum + Number(order.totalAmount || 0), 0);
+  const bestSellingProduct = getBestSellingProduct(orders);
+
+  addText('Dresoteka Admin Report', { size: 18, weight: 'bold', gap: 8 });
+  addText(`Datum izvoza: ${new Date().toLocaleString('sl-SI')}`, { size: 10, gap: 5 });
+  addText(`Skupno narocil: ${orders.length}`, { size: 11, gap: 5 });
+  addText(`Skupni dobicek vseh dresov: ${formatPrice(totalRevenue, 'EUR')}`, { size: 11, gap: 5 });
+  addText(
+    `Najbolj kupljen dres: ${bestSellingProduct ? `${bestSellingProduct.name} (${bestSellingProduct.quantity}x)` : '-'}`,
+    { size: 11, gap: 8 },
+  );
+
+  STATUS_SECTIONS.forEach((section) => {
+    const sectionOrders = orders.filter((order) => (order.status || 'v-pripravi') === section.key);
+
+    addText(`${section.title}: ${sectionOrders.length}`, { size: 13, weight: 'bold', gap: 6 });
+
+    if (sectionOrders.length === 0) {
+      addText('Ni narocil v tej skupini.', { size: 10, gap: 5 });
+      return;
+    }
+
+    sectionOrders.forEach((order, index) => {
+      addText(`${index + 1}. ${order.orderNumber || 'Narocilo'}`, { size: 12, weight: 'bold', gap: 5 });
+      addText(`Stranka: ${getCustomerName(order)}`, { size: 10, gap: 4 });
+      addText(`Email: ${order.customer?.email || '-'}`, { size: 10, gap: 4 });
+      addText(
+        `Naslov: ${order.customer?.address || '-'}, ${order.customer?.postalCode || '-'} ${order.customer?.city || '-'}`,
+        { size: 10, gap: 4 },
+      );
+      addText(`Status: ${formatOrderStatus(order.status)}`, { size: 10, gap: 4 });
+      addText(`Skupaj: ${formatPrice(order.totalAmount, order.currency || 'EUR')}`, { size: 10, gap: 4 });
+      addText(`Ustvarjeno: ${order.createdAt ? new Date(order.createdAt).toLocaleString('sl-SI') : '-'}`, {
+        size: 10,
+        gap: 4,
+      });
+
+      (order.items || []).forEach((item) => {
+        addText(
+          `- ${item.name} x ${item.quantity} = ${formatPrice(
+            Number(item.unitPrice || 0) * Number(item.quantity || 0),
+            item.currency || 'EUR',
+          )}`,
+          { size: 10, gap: 4 },
+        );
+      });
+
+      cursorY += 2;
+    });
+  });
+
+  doc.save(`dresoteka-narocila-${new Date().toISOString().slice(0, 10)}.pdf`);
+}
 
 function OrderCard({ order, updatingOrderId, onStatusChange }) {
   return (
@@ -228,6 +335,8 @@ function AdminPage() {
     ...section,
     orders: filteredOrders.filter((order) => (order.status || 'v-pripravi') === section.key),
   }));
+  const totalRevenue = orders.reduce((sum, order) => sum + Number(order.totalAmount || 0), 0);
+  const bestSellingProduct = getBestSellingProduct(orders);
 
   return (
     <div className="admin-page">
@@ -305,6 +414,24 @@ function AdminPage() {
                 value={searchQuery}
                 onChange={(event) => setSearchQuery(event.target.value)}
               />
+              <div className="admin-summary-grid">
+                <div className="admin-summary-item">
+                  <span>Skupni dobicek</span>
+                  <strong>{formatPrice(totalRevenue, 'EUR')}</strong>
+                </div>
+                <div className="admin-summary-item">
+                  <span>Najbolj kupljen dres</span>
+                  <strong>{bestSellingProduct ? `${bestSellingProduct.name} (${bestSellingProduct.quantity}x)` : '-'}</strong>
+                </div>
+              </div>
+              <button
+                className="admin-link-button"
+                type="button"
+                onClick={() => exportOrdersPdf(orders)}
+                disabled={orders.length === 0}
+              >
+                Export PDF
+              </button>
             </section>
 
             {isLoadingOrders ? <section className="admin-card"><p className="admin-text">Nalagam narocila...</p></section> : null}

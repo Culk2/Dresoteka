@@ -903,6 +903,31 @@ button {
   background: #fafafa;
 }
 
+.admin-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.admin-summary-item {
+  padding: 16px;
+  border: 1px solid #dddddd;
+  border-radius: 16px;
+  background: #fafafa;
+  display: grid;
+  gap: 6px;
+}
+
+.admin-summary-item span {
+  color: #666666;
+  font-size: 14px;
+}
+
+.admin-summary-item strong {
+  font-size: 18px;
+}
+
 .admin-section-head,
 .admin-order-top {
   display: flex;
@@ -988,6 +1013,10 @@ button {
   }
 
   .admin-tables-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-summary-grid {
     grid-template-columns: 1fr;
   }
 }
