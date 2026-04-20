@@ -6,6 +6,7 @@ import {
   getOrderDocumentId,
   upsertOrderInSanity,
 } from './stripeCheckout.js';
+import { sendOrderConfirmationEmail } from './emailService.js';
 
 const dataDir = path.resolve(process.cwd(), 'server', 'data');
 const dataFile = path.join(dataDir, 'orders.json');
@@ -77,6 +78,12 @@ export async function confirmOrder(sessionId) {
   try {
     const sanityOrder = await upsertOrderInSanity({ session, lineItems });
 
+    try {
+      await sendOrderConfirmationEmail({ order: sanityOrder, sessionId: session.id });
+    } catch (error) {
+      console.error('Order confirmation email failed:', error);
+    }
+
     return {
       order: sanityOrder,
       source: 'sanity',
@@ -88,6 +95,12 @@ export async function confirmOrder(sessionId) {
     const merged = existing ? { ...existing, ...nextOrder } : nextOrder;
     const remaining = current.filter((order) => order._id !== nextOrder._id);
     writeOrders([merged, ...remaining]);
+
+    try {
+      await sendOrderConfirmationEmail({ order: merged, sessionId: session.id });
+    } catch (error) {
+      console.error('Order confirmation email failed:', error);
+    }
 
     return {
       order: merged,

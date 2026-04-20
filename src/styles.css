@@ -30,7 +30,6 @@ button {
 }
 
 .mainnav-inner,
-.announcement,
 .content-shell {
   width: min(1800px, calc(100vw - 48px));
   margin: 0 auto;
@@ -111,22 +110,33 @@ button {
 }
 
 .studio-link,
-.primary-button {
+.primary-button,
+.secondary-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   min-height: 44px;
   padding: 0 18px;
-  border: 1px solid #111111;
   border-radius: 999px;
-  background: #111111;
-  color: #ffffff;
   font-size: 14px;
   font-weight: 700;
 }
 
+.studio-link,
+.primary-button {
+  border: 1px solid #111111;
+  background: #111111;
+  color: #ffffff;
+}
+
 .primary-button {
   width: fit-content;
+}
+
+.secondary-button {
+  border: 1px solid #dddddd;
+  background: #ffffff;
+  color: #111111;
 }
 
 .primary-button:disabled {
@@ -161,25 +171,6 @@ button {
 .auth-hint {
   font-size: 14px;
   color: #666666;
-}
-
-.announcement {
-  min-height: 72px;
-  display: grid;
-  grid-template-columns: 40px 1fr 40px;
-  align-items: center;
-  text-align: center;
-}
-
-.announcement p {
-  margin: 0;
-  font-size: 18px;
-  font-weight: 700;
-}
-
-.announcement a {
-  text-decoration: underline;
-  margin-left: 10px;
 }
 
 .content-shell {
@@ -243,6 +234,39 @@ button {
 .success-panel p,
 .section-copy {
   margin: 0;
+}
+
+.success-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(17, 17, 17, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  z-index: 40;
+}
+
+.success-modal {
+  width: min(560px, 100%);
+  display: grid;
+  gap: 16px;
+  padding: 28px;
+  border-radius: 24px;
+  border: 1px solid #dddddd;
+  background: #ffffff;
+  box-shadow: 0 24px 80px rgba(17, 17, 17, 0.18);
+}
+
+.success-modal h2,
+.success-modal p {
+  margin: 0;
+}
+
+.success-modal-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .product-grid {
@@ -432,6 +456,10 @@ button {
   line-height: 0.95;
 }
 
+.page-intro-orders {
+  margin-bottom: 14px;
+}
+
 .back-link {
   display: inline-flex;
   align-items: center;
@@ -614,45 +642,8 @@ button {
 }
 
 .order-item-row {
-  display: grid;
-  grid-template-columns: 72px minmax(0, 1fr);
-  gap: 14px;
+  display: block;
   align-items: center;
-}
-
-.order-item-thumb {
-  width: 72px;
-  height: 72px;
-  border-radius: 16px;
-  overflow: hidden;
-  background: #f3f3f3;
-}
-
-.order-item-thumb img,
-.order-item-thumb .product-visual {
-  width: 100%;
-  height: 100%;
-}
-
-.order-item-thumb .product-visual {
-  border-radius: 0;
-}
-
-.order-item-thumb .shirt-shape {
-  width: 42px;
-  height: 56px;
-  bottom: 6px;
-}
-
-.order-item-thumb .shirt-neck {
-  width: 18px;
-  height: 10px;
-  top: 4px;
-}
-
-.order-item-thumb .shirt-body span,
-.order-item-thumb .shirt-body strong {
-  display: none;
 }
 
 .order-item-copy {
@@ -676,9 +667,58 @@ button {
   flex-wrap: wrap;
 }
 
+.order-card-heading {
+  display: grid;
+  gap: 8px;
+}
+
+.order-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .order-meta {
   color: #555555;
   font-size: 14px;
+}
+
+.order-card > .order-meta:nth-of-type(2) {
+  display: none;
+}
+
+.order-card > .order-meta:last-of-type {
+  padding-top: 8px;
+  border-top: 1px solid #e8e8e8;
+}
+
+.order-meta span:first-child {
+  display: none;
+}
+
+.order-details-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.order-detail-card {
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+  border: 1px solid #e8e8e8;
+  border-radius: 16px;
+  background: #fafafa;
+}
+
+.order-detail-label {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #666666;
 }
 
 .status-pill {
@@ -1019,11 +1059,19 @@ button {
   .admin-summary-grid {
     grid-template-columns: 1fr;
   }
+
+  .order-details-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .order-card-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
 }
 
 @media (max-width: 760px) {
   .mainnav-inner,
-  .announcement,
   .content-shell {
     width: min(100vw - 28px, 1800px);
   }
@@ -1070,5 +1118,18 @@ button {
 
   .admin-hero h1 {
     font-size: 32px;
+  }
+
+  .success-modal {
+    padding: 22px;
+  }
+
+  .success-modal-actions {
+    flex-direction: column;
+  }
+
+  .success-modal-actions .primary-button,
+  .success-modal-actions .secondary-button {
+    width: 100%;
   }
 }

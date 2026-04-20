@@ -40,6 +40,9 @@ function getEnv() {
 
   return {
     stripeSecretKey: process.env.STRIPE_SECRET_KEY || fileEnv.STRIPE_SECRET_KEY || '',
+    gmailSmtpUser: process.env.GMAIL_SMTP_USER || fileEnv.GMAIL_SMTP_USER || '',
+    gmailSmtpPass: process.env.GMAIL_SMTP_PASS || fileEnv.GMAIL_SMTP_PASS || '',
+    orderEmailFrom: process.env.ORDER_EMAIL_FROM || fileEnv.ORDER_EMAIL_FROM || 'dresko54@gmail.com',
     sanityProjectId:
       process.env.VITE_SANITY_PROJECT_ID ||
       fileEnv.VITE_SANITY_PROJECT_ID ||
@@ -178,7 +181,7 @@ export async function createCheckoutSession({ cartItems = [], customer = {}, ori
     mode: 'payment',
     locale: 'auto',
     line_items: lineItems,
-    success_url: `${origin}/checkout?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
+    success_url: `${origin}/?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${origin}/checkout?checkout=cancel`,
     metadata: {
       firstName: String(customer.firstName || ''),
