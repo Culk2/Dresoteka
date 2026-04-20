@@ -1365,7 +1365,7 @@ function CheckoutPage({
 function App() {
   const hasClerk = Boolean(import.meta.env.VITE_CLERK_PUBLISHABLE_KEY);
   const baseUrl = (import.meta.env.BASE_URL || '/').replace(/\/$/, '');
-  const studioPath = `${baseUrl}/studio`;
+  const adminPath = `${baseUrl}/admin`;
   const [pathname, setPathname] = useState(window.location.pathname);
   const [search, setSearch] = useState(window.location.search);
   const route = parseRoute(pathname, baseUrl);
@@ -1596,8 +1596,8 @@ function App() {
             <button className="icon-button" type="button" onClick={() => navigate(getOrdersPath(baseUrl))}>
               Narocila
             </button>
-            <a className="studio-link" href={studioPath}>
-              Studio
+            <a className="studio-link" href={adminPath}>
+              Admin
             </a>
             {hasClerk ? (
               <AuthControls />
