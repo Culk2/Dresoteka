@@ -152,3 +152,50 @@ export async function getAllOrders() {
     );
   }
 }
+
+export async function updateOrderStatus(orderId, status) {
+  const normalizedId = String(orderId || '').trim();
+  const normalizedStatus = String(status || '').trim();
+
+  if (!normalizedId) {
+    throw new Error('Missing orderId.');
+  }
+
+  if (!['v-pripravi', 'odposlano', 'prevzeto'].includes(normalizedStatus)) {
+    throw new Error('Unsupported order status.');
+  }
+
+  try {
+    const { createSanityClient } = await import('./stripeCheckout.js');
+    const client = createSanityClient();
+
+    await client.patch(normalizedId).set({ status: normalizedStatus }).commit();
+
+    return client.fetch(
+      `*[_type == "order" && _id == $id][0]{
+        _id,
+        orderNumber,
+        status,
+        paymentStatus,
+        totalAmount,
+        currency,
+        createdAt,
+        customer,
+        items
+      }`,
+      { id: normalizedId },
+    );
+  } catch {
+    const current = readOrders();
+    const existing = current.find((order) => order._id === normalizedId);
+
+    if (!existing) {
+      throw new Error('Order not found.');
+    }
+
+    const updatedOrder = { ...existing, status: normalizedStatus };
+    const remaining = current.filter((order) => order._id !== normalizedId);
+    writeOrders([updatedOrder, ...remaining]);
+    return updatedOrder;
+  }
+}

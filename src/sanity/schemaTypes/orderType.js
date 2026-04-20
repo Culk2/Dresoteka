@@ -25,6 +25,7 @@ export const orderType = defineType({
         list: [
           { title: 'V pripravi', value: 'v-pripravi' },
           { title: 'Odposlano', value: 'odposlano' },
+          { title: 'Prevzeto', value: 'prevzeto' },
           { title: 'Dostavljeno', value: 'dostavljeno' },
           { title: 'Preklicano', value: 'preklicano' },
         ],

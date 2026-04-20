@@ -700,6 +700,11 @@ button {
   color: #175cd3;
 }
 
+.status-pill-prevzeto {
+  background: #ecfdf3;
+  color: #027a48;
+}
+
 .status-pill-dostavljeno {
   background: #ecfdf3;
   color: #027a48;
@@ -708,6 +713,20 @@ button {
 .status-pill-preklicano {
   background: #fff1f3;
   color: #c01048;
+}
+
+.status-select {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+  outline: 0;
+  cursor: pointer;
+}
+
+.status-select:disabled {
+  cursor: wait;
 }
 
 .form-grid {
@@ -815,8 +834,15 @@ button {
   gap: 20px;
 }
 
+.admin-tables-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 20px;
+}
+
 .admin-hero,
-.admin-card {
+.admin-card,
+.admin-status-table {
   background: #ffffff;
   border: 1px solid #e3e3e3;
   border-radius: 24px;
@@ -865,6 +891,16 @@ button {
 .admin-link-button-secondary {
   background: #ffffff;
   color: #111111;
+}
+
+.admin-search-input {
+  width: 100%;
+  margin-top: 18px;
+  min-height: 48px;
+  padding: 0 16px;
+  border: 1px solid #dddddd;
+  border-radius: 14px;
+  background: #fafafa;
 }
 
 .admin-section-head,
@@ -949,6 +985,10 @@ button {
 
   .product-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-tables-grid {
+    grid-template-columns: 1fr;
   }
 }
 

@@ -20,19 +20,100 @@ function formatOrderStatus(status) {
     return 'V pripravi';
   }
 
-  if (value === 'paid') {
-    return 'Placano';
+  if (value === 'odposlano') {
+    return 'Odposlano';
   }
 
-  if (value === 'shipped') {
-    return 'Poslano';
-  }
-
-  if (value === 'delivered') {
-    return 'Dostavljeno';
+  if (value === 'prevzeto') {
+    return 'Prevzeto';
   }
 
   return status || 'Brez statusa';
+}
+
+const STATUS_SECTIONS = [
+  { key: 'v-pripravi', title: 'V pripravi' },
+  { key: 'odposlano', title: 'Odposlano' },
+  { key: 'prevzeto', title: 'Prevzeto' },
+];
+
+function OrderCard({ order, updatingOrderId, onStatusChange }) {
+  return (
+    <article className="admin-order-card">
+      <div className="admin-order-top">
+        <div>
+          <p className="tag">{order.orderNumber || 'Narocilo'}</p>
+          <h3>
+            {order.customer?.firstName || ''} {order.customer?.lastName || ''}
+          </h3>
+        </div>
+        <label className={`status-pill status-pill-${order.status || 'v-pripravi'}`}>
+          <select
+            className="status-select"
+            value={order.status || 'v-pripravi'}
+            onChange={(event) => onStatusChange(order._id, event.target.value)}
+            disabled={updatingOrderId === order._id}
+          >
+            <option value="v-pripravi">V pripravi</option>
+            <option value="odposlano">Odposlano</option>
+            <option value="prevzeto">Prevzeto</option>
+          </select>
+        </label>
+      </div>
+
+      <div className="admin-order-meta">
+        <span>Email: {order.customer?.email || '-'}</span>
+        <span>
+          Naslov: {order.customer?.address || '-'}, {order.customer?.postalCode || '-'} {order.customer?.city || '-'}
+        </span>
+        <span>Placilo: {order.paymentStatus || '-'}</span>
+        <span>Skupaj: {formatPrice(order.totalAmount, order.currency || 'EUR')}</span>
+        <span>Trenutni status: {formatOrderStatus(order.status)}</span>
+        <span>Ustvarjeno: {order.createdAt ? new Date(order.createdAt).toLocaleString('sl-SI') : '-'}</span>
+        {updatingOrderId === order._id ? <span>Posodabljam status...</span> : null}
+      </div>
+
+      <div className="admin-order-items">
+        {(order.items || []).map((item) => (
+          <div className="admin-order-item" key={item._key || `${item.name}-${item.quantity}`}>
+            <span>
+              {item.name} x {item.quantity}
+            </span>
+            <strong>{formatPrice((item.unitPrice || 0) * (item.quantity || 0), item.currency || 'EUR')}</strong>
+          </div>
+        ))}
+      </div>
+    </article>
+  );
+}
+
+function StatusTable({ title, statusKey, orders, updatingOrderId, onStatusChange }) {
+  return (
+    <section className="admin-status-table">
+      <div className="admin-section-head">
+        <div>
+          <p className="admin-kicker">Narocila</p>
+          <h2>{title}</h2>
+        </div>
+        <span className={`admin-order-count status-pill status-pill-${statusKey}`}>{orders.length}</span>
+      </div>
+
+      {orders.length === 0 ? (
+        <p className="admin-text">Ni narocil v tej skupini.</p>
+      ) : (
+        <div className="admin-orders-list">
+          {orders.map((order) => (
+            <OrderCard
+              key={order._id}
+              order={order}
+              updatingOrderId={updatingOrderId}
+              onStatusChange={onStatusChange}
+            />
+          ))}
+        </div>
+      )}
+    </section>
+  );
 }
 
 function AdminPage() {
@@ -43,6 +124,8 @@ function AdminPage() {
   const [orders, setOrders] = React.useState([]);
   const [isLoadingOrders, setIsLoadingOrders] = React.useState(false);
   const [ordersError, setOrdersError] = React.useState('');
+  const [updatingOrderId, setUpdatingOrderId] = React.useState('');
+  const [searchQuery, setSearchQuery] = React.useState('');
 
   React.useEffect(() => {
     let active = true;
@@ -94,6 +177,57 @@ function AdminPage() {
       active = false;
     };
   }, [isLoaded, userId]);
+
+  async function handleStatusChange(orderId, nextStatus) {
+    const previousOrders = orders;
+
+    setUpdatingOrderId(orderId);
+    setOrdersError('');
+    setOrders((current) =>
+      current.map((order) => (order._id === orderId ? { ...order, status: nextStatus } : order)),
+    );
+
+    try {
+      const response = await fetch(`/api/admin/orders/${encodeURIComponent(orderId)}/status`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ status: nextStatus }),
+      });
+      const data = await response.json();
+
+      if (!response.ok || !data.order?._id) {
+        throw new Error(data.error || 'Posodobitev statusa ni uspela.');
+      }
+
+      setOrders((current) => current.map((order) => (order._id === data.order._id ? data.order : order)));
+    } catch (error) {
+      setOrders(previousOrders);
+      setOrdersError(error instanceof Error ? error.message : 'Posodobitev statusa ni uspela.');
+    } finally {
+      setUpdatingOrderId('');
+    }
+  }
+
+  const filteredOrders = orders.filter((order) => {
+    const query = searchQuery.trim().toLowerCase();
+
+    if (!query) {
+      return true;
+    }
+
+    const customerName = `${order.customer?.firstName || ''} ${order.customer?.lastName || ''}`.trim();
+    const email = order.customer?.email || '';
+    const orderNumber = order.orderNumber || '';
+
+    return [customerName, email, orderNumber].some((value) => value.toLowerCase().includes(query));
+  });
+
+  const groupedOrders = STATUS_SECTIONS.map((section) => ({
+    ...section,
+    orders: filteredOrders.filter((order) => (order.status || 'v-pripravi') === section.key),
+  }));
 
   return (
     <div className="admin-page">
@@ -159,65 +293,37 @@ function AdminPage() {
             <section className="admin-card">
               <div className="admin-section-head">
                 <div>
-                  <p className="admin-kicker">Narocila</p>
-                  <h2>Vsa narocila</h2>
+                  <p className="admin-kicker">Iskanje</p>
+                  <h2>Najdi narocilo</h2>
                 </div>
-                <span className="admin-order-count">{orders.length}</span>
+                <span className="admin-order-count">{filteredOrders.length}</span>
               </div>
-
-              {isLoadingOrders ? <p className="admin-text">Nalagam narocila...</p> : null}
-              {!isLoadingOrders && ordersError ? <p className="admin-error">{ordersError}</p> : null}
-              {!isLoadingOrders && !ordersError && orders.length === 0 ? (
-                <p className="admin-text">Trenutno ni shranjenih narocil.</p>
-              ) : null}
-
-              {!isLoadingOrders && !ordersError && orders.length > 0 ? (
-                <div className="admin-orders-list">
-                  {orders.map((order) => (
-                    <article className="admin-order-card" key={order._id}>
-                      <div className="admin-order-top">
-                        <div>
-                          <p className="tag">{order.orderNumber || 'Narocilo'}</p>
-                          <h3>
-                            {order.customer?.firstName || ''} {order.customer?.lastName || ''}
-                          </h3>
-                        </div>
-                        <span className={`status-pill status-pill-${order.status || 'v-pripravi'}`}>
-                          {formatOrderStatus(order.status)}
-                        </span>
-                      </div>
-
-                      <div className="admin-order-meta">
-                        <span>Email: {order.customer?.email || '-'}</span>
-                        <span>
-                          Naslov: {order.customer?.address || '-'}, {order.customer?.postalCode || '-'}{' '}
-                          {order.customer?.city || '-'}
-                        </span>
-                        <span>Placilo: {order.paymentStatus || '-'}</span>
-                        <span>Skupaj: {formatPrice(order.totalAmount, order.currency || 'EUR')}</span>
-                        <span>
-                          Ustvarjeno:{' '}
-                          {order.createdAt ? new Date(order.createdAt).toLocaleString('sl-SI') : '-'}
-                        </span>
-                      </div>
-
-                      <div className="admin-order-items">
-                        {(order.items || []).map((item) => (
-                          <div className="admin-order-item" key={item._key || `${item.name}-${item.quantity}`}>
-                            <span>
-                              {item.name} x {item.quantity}
-                            </span>
-                            <strong>
-                              {formatPrice((item.unitPrice || 0) * (item.quantity || 0), item.currency || 'EUR')}
-                            </strong>
-                          </div>
-                        ))}
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              ) : null}
+              <input
+                className="admin-search-input"
+                type="search"
+                placeholder="Isci po imenu, emailu ali stevilki narocila"
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+              />
             </section>
+
+            {isLoadingOrders ? <section className="admin-card"><p className="admin-text">Nalagam narocila...</p></section> : null}
+            {!isLoadingOrders && ordersError ? <section className="admin-card"><p className="admin-error">{ordersError}</p></section> : null}
+
+            {!isLoadingOrders && !ordersError ? (
+              <section className="admin-tables-grid">
+                {groupedOrders.map((section) => (
+                  <StatusTable
+                    key={section.key}
+                    title={section.title}
+                    statusKey={section.key}
+                    orders={section.orders}
+                    updatingOrderId={updatingOrderId}
+                    onStatusChange={handleStatusChange}
+                  />
+                ))}
+              </section>
+            ) : null}
           </>
         ) : null}
       </main>

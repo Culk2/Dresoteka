@@ -458,6 +458,7 @@ function formatOrderStatus(value) {
   const labels = {
     'v-pripravi': 'V pripravi',
     odposlano: 'Odposlano',
+    prevzeto: 'Prevzeto',
     dostavljeno: 'Dostavljeno',
     preklicano: 'Preklicano',
   };

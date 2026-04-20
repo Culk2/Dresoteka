@@ -1,6 +1,6 @@
 import express from 'express';
 import { createCheckoutSession } from './stripeCheckout.js';
-import { confirmOrder, getAllOrders, getOrdersByIds } from './ordersStore.js';
+import { confirmOrder, getAllOrders, getOrdersByIds, updateOrderStatus } from './ordersStore.js';
 
 const app = express();
 const port = Number(process.env.LOCAL_API_PORT || 3001);
@@ -68,6 +68,17 @@ app.get('/api/admin/orders', async (_req, res) => {
   } catch (error) {
     return res.status(500).json({
       error: error instanceof Error ? error.message : 'Admin orders fetch error.',
+    });
+  }
+});
+
+app.patch('/api/admin/orders/:orderId/status', async (req, res) => {
+  try {
+    const order = await updateOrderStatus(req.params.orderId, req.body?.status);
+    return res.status(200).json({ order });
+  } catch (error) {
+    return res.status(500).json({
+      error: error instanceof Error ? error.message : 'Admin order status update error.',
     });
   }
 });
