@@ -407,14 +407,27 @@ function AdminPage() {
     );
 
     try {
-      const response = await fetch(`/api/admin/orders/${encodeURIComponent(orderId)}/status`, {
-        method: 'PATCH',
+      const response = await fetch('/api/admin-order-status', {
+        method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ status: nextStatus }),
+        body: JSON.stringify({ orderId, status: nextStatus }),
       });
-      const data = await response.json();
+      const responseText = await response.text();
+      let data = {};
+
+      if (responseText) {
+        try {
+          data = JSON.parse(responseText);
+        } catch {
+          throw new Error(
+            responseText.includes('<!DOCTYPE') || responseText.includes('<html')
+              ? 'API za posodobitev statusa ni vrnil JSON odgovora.'
+              : 'API za posodobitev statusa ni vrnil veljavnega JSON odgovora.',
+          );
+        }
+      }
 
       if (!response.ok || !data.order?._id) {
         throw new Error(data.error || 'Posodobitev statusa ni uspela.');
