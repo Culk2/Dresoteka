@@ -105,7 +105,7 @@ function normalizeQuantity(value) {
   return quantity;
 }
 
-export async function createCheckoutSession({ cartItems = [], customer = {}, origin }) {
+export async function createCheckoutSession({ cartItems = [], customer = {}, clerkUserId = '', origin }) {
   const env = getEnv();
 
   if (!env.stripeSecretKey) {
@@ -191,6 +191,7 @@ export async function createCheckoutSession({ cartItems = [], customer = {}, ori
       address: String(customer.address || ''),
       postalCode: String(customer.postalCode || ''),
       city: String(customer.city || ''),
+      clerkUserId: String(clerkUserId || ''),
     },
   });
 }
@@ -216,6 +217,7 @@ export async function upsertOrderInSanity({ session, lineItems }) {
     _type: 'order',
     orderNumber: formatOrderNumber(session.id),
     stripeSessionId: session.id,
+    clerkUserId: String(session.metadata?.clerkUserId || ''),
     status: 'v-pripravi',
     paymentStatus: session.payment_status || 'unpaid',
     customer: {
@@ -250,6 +252,7 @@ export async function upsertOrderInSanity({ session, lineItems }) {
       orderNumber,
       status,
       paymentStatus,
+      clerkUserId,
       totalAmount,
       currency,
       createdAt,

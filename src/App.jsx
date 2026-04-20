@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Show, SignInButton, SignUpButton, UserButton, useAuth } from '@clerk/react';
+import { Show, SignInButton, SignUpButton, UserButton, useAuth, useUser } from '@clerk/react';
 import { sanityClient } from './lib/sanityClient';
 import { urlFor } from './lib/sanityImage';
 
@@ -108,6 +108,8 @@ const productDetailQuery = `*[_type == "product" && slug.current == $slug][0]{
   price,
   image
 }`;
+
+const ADMIN_EMAILS = new Set(['jost.culk7@gmail.com', 'jresnik.007@gmail.com']);
 
 function formatPrice(value) {
   if (typeof value !== 'number') {
@@ -452,9 +454,51 @@ function writeCart(items) {
   window.localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(items));
 }
 
-function readOrderIds() {
+function getOrderStorageScope(user) {
+  if (!user) {
+    return 'guest';
+  }
+
+  return String(user.id || 'guest');
+}
+
+function getScopedStorageKey(baseKey, scope) {
+  return `${baseKey}:${scope || 'guest'}`;
+}
+
+function readLegacyOrderIds() {
   try {
     const stored = window.localStorage.getItem(ORDER_STORAGE_KEY);
+
+    if (!stored) {
+      return [];
+    }
+
+    const parsed = JSON.parse(stored);
+    return Array.isArray(parsed) ? parsed.filter((value) => typeof value === 'string' && value) : [];
+  } catch {
+    return [];
+  }
+}
+
+function readLegacyOrderDetails() {
+  try {
+    const stored = window.localStorage.getItem(ORDER_DETAILS_STORAGE_KEY);
+
+    if (!stored) {
+      return [];
+    }
+
+    const parsed = JSON.parse(stored);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function readOrderIds(scope) {
+  try {
+    const stored = window.localStorage.getItem(getScopedStorageKey(ORDER_STORAGE_KEY, scope));
 
     if (!stored) {
       return [];
@@ -472,13 +516,13 @@ function readOrderIds() {
   }
 }
 
-function writeOrderIds(orderIds) {
-  window.localStorage.setItem(ORDER_STORAGE_KEY, JSON.stringify(orderIds));
+function writeOrderIds(orderIds, scope) {
+  window.localStorage.setItem(getScopedStorageKey(ORDER_STORAGE_KEY, scope), JSON.stringify(orderIds));
 }
 
-function readOrderDetails() {
+function readOrderDetails(scope) {
   try {
-    const stored = window.localStorage.getItem(ORDER_DETAILS_STORAGE_KEY);
+    const stored = window.localStorage.getItem(getScopedStorageKey(ORDER_DETAILS_STORAGE_KEY, scope));
 
     if (!stored) {
       return [];
@@ -491,25 +535,25 @@ function readOrderDetails() {
   }
 }
 
-function writeOrderDetails(orders) {
-  window.localStorage.setItem(ORDER_DETAILS_STORAGE_KEY, JSON.stringify(orders));
+function writeOrderDetails(orders, scope) {
+  window.localStorage.setItem(getScopedStorageKey(ORDER_DETAILS_STORAGE_KEY, scope), JSON.stringify(orders));
 }
 
-function readPendingOrder() {
+function readPendingOrder(scope) {
   try {
-    const stored = window.localStorage.getItem(PENDING_ORDER_STORAGE_KEY);
+    const stored = window.localStorage.getItem(getScopedStorageKey(PENDING_ORDER_STORAGE_KEY, scope));
     return stored ? JSON.parse(stored) : null;
   } catch {
     return null;
   }
 }
 
-function writePendingOrder(order) {
-  window.localStorage.setItem(PENDING_ORDER_STORAGE_KEY, JSON.stringify(order));
+function writePendingOrder(order, scope) {
+  window.localStorage.setItem(getScopedStorageKey(PENDING_ORDER_STORAGE_KEY, scope), JSON.stringify(order));
 }
 
-function clearPendingOrder() {
-  window.localStorage.removeItem(PENDING_ORDER_STORAGE_KEY);
+function clearPendingOrder(scope) {
+  window.localStorage.removeItem(getScopedStorageKey(PENDING_ORDER_STORAGE_KEY, scope));
 }
 
 async function readJsonResponse(response, fallbackMessage) {
@@ -711,6 +755,7 @@ function buildLocalOrderFromPending(pendingOrder, sessionId) {
   return {
     _id: `local-${sessionId || Date.now()}`,
     orderNumber: `DRS-${suffix}`,
+    clerkUserId: pendingOrder.clerkUserId || '',
     status: 'v-pripravi',
     paymentStatus: 'paid',
     totalAmount: pendingOrder.totalAmount || 0,
@@ -793,6 +838,28 @@ function AuthControls() {
         </div>
       </Show>
     </>
+  );
+}
+
+function AdminLink({ href }) {
+  const { isLoaded, isSignedIn, user } = useUser();
+
+  if (!isLoaded || !isSignedIn) {
+    return null;
+  }
+
+  const allowed = (user.emailAddresses || []).some((entry) =>
+    ADMIN_EMAILS.has(String(entry.emailAddress || '').toLowerCase()),
+  );
+
+  if (!allowed) {
+    return null;
+  }
+
+  return (
+    <a className="studio-link" href={href}>
+      Admin
+    </a>
   );
 }
 
@@ -971,9 +1038,8 @@ function CartPage({ cartItems, baseUrl, onNavigate, onUpdateQuantity, onRemoveIt
   return (
     <main className="content-shell">
       <section className="page-intro">
-        <p className="tag">Kosarica</p>
         <h1>Tvoja kosarica</h1>
-        <p className="section-copy">Preglej izdelke, spremeni kolicino in nadaljuj na checkout.</p>
+        <hr></hr>
       </section>
 
       {cartItems.length === 0 ? (
@@ -1049,7 +1115,7 @@ function CartPage({ cartItems, baseUrl, onNavigate, onUpdateQuantity, onRemoveIt
   );
 }
 
-function OrdersPage({ orderIds, localOrders, baseUrl, onNavigate }) {
+function OrdersPage({ currentClerkUserId, localOrders, baseUrl, onNavigate }) {
   const [orders, setOrders] = useState(localOrders);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
@@ -1058,16 +1124,16 @@ function OrdersPage({ orderIds, localOrders, baseUrl, onNavigate }) {
     let isActive = true;
 
     async function loadOrders() {
-      if (orderIds.length === 0) {
+      if (!currentClerkUserId) {
         if (isActive) {
-          setOrders(localOrders);
+          setOrders([]);
           setIsLoading(false);
         }
         return;
       }
 
       try {
-        const response = await fetch(`/api/orders?ids=${encodeURIComponent(orderIds.join(','))}`);
+        const response = await fetch(`/api/my-orders?clerkUserId=${encodeURIComponent(currentClerkUserId)}`);
         const data = await readJsonResponse(response, 'API za narocila ni vrnil veljavnega JSON odgovora.');
 
         if (!response.ok) {
@@ -1091,7 +1157,11 @@ function OrdersPage({ orderIds, localOrders, baseUrl, onNavigate }) {
         }
       } catch (loadError) {
         if (isActive) {
-          setOrders(localOrders);
+          const filteredLocalOrders = localOrders.filter(
+            (order) => String(order.clerkUserId || '') === String(currentClerkUserId || ''),
+          );
+
+          setOrders(filteredLocalOrders);
           setError(loadError.message || 'Nalaganje narocil ni uspelo.');
         }
       } finally {
@@ -1106,7 +1176,7 @@ function OrdersPage({ orderIds, localOrders, baseUrl, onNavigate }) {
     return () => {
       isActive = false;
     };
-  }, [localOrders, orderIds]);
+  }, [currentClerkUserId, localOrders]);
 
   return (
     <main className="content-shell">
@@ -1213,6 +1283,9 @@ function OrdersPage({ orderIds, localOrders, baseUrl, onNavigate }) {
 function CheckoutPage({
   cartItems,
   checkoutStatus,
+  orderStorageScope,
+  clerkUserId,
+  onPendingOrderChange,
 }) {
   const [formData, setFormData] = useState({
     firstName: '',
@@ -1276,7 +1349,8 @@ function CheckoutPage({
     try {
       setIsSubmitting(true);
 
-        writePendingOrder({
+        const nextPendingOrder = {
+          clerkUserId: clerkUserId || '',
           customer: formData,
           items: cartItems.map((item) => ({
             slug: slugifyProduct(item.slug || item.name || item.club || ''),
@@ -1287,7 +1361,10 @@ function CheckoutPage({
             imageClass: item.imageClass || '',
           })),
           totalAmount: total,
-        });
+        };
+
+        writePendingOrder(nextPendingOrder, orderStorageScope);
+        onPendingOrderChange(nextPendingOrder);
 
       const response = await fetch('/api/create-checkout-session', {
         method: 'POST',
@@ -1295,6 +1372,7 @@ function CheckoutPage({
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
+          clerkUserId: clerkUserId || '',
           cartItems: cartItems.map((item) => ({
             slug: slugifyProduct(item.slug || item.name || item.club || ''),
             quantity: item.quantity,
@@ -1433,8 +1511,11 @@ function CheckoutPage({
 
 function App() {
   const hasClerk = Boolean(import.meta.env.VITE_CLERK_PUBLISHABLE_KEY);
+  const { isLoaded: isUserLoaded, user } = useUser();
   const baseUrl = (import.meta.env.BASE_URL || '/').replace(/\/$/, '');
   const adminPath = `${baseUrl}/admin`;
+  const orderStorageScope = hasClerk ? (isUserLoaded ? getOrderStorageScope(user) : 'guest') : 'guest';
+  const currentClerkUserId = String(user?.id || '');
   const [pathname, setPathname] = useState(window.location.pathname);
   const [search, setSearch] = useState(window.location.search);
   const route = parseRoute(pathname, baseUrl);
@@ -1445,9 +1526,9 @@ function App() {
   const [sanityError, setSanityError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [cartItems, setCartItems] = useState(() => readCart());
-  const [orderIds, setOrderIds] = useState(() => readOrderIds());
-  const [localOrders, setLocalOrders] = useState(() => readOrderDetails());
-  const [pendingOrder] = useState(() => readPendingOrder());
+  const [orderIds, setOrderIds] = useState(() => readOrderIds(orderStorageScope));
+  const [localOrders, setLocalOrders] = useState(() => readOrderDetails(orderStorageScope));
+  const [pendingOrder, setPendingOrder] = useState(() => readPendingOrder(orderStorageScope));
   const [successPopupOrder, setSuccessPopupOrder] = useState(null);
   const [selectedFilters, setSelectedFilters] = useState({
     club: '',
@@ -1475,12 +1556,18 @@ function App() {
   }, [cartItems]);
 
   useEffect(() => {
-    writeOrderIds(orderIds);
-  }, [orderIds]);
+    writeOrderIds(orderIds, orderStorageScope);
+  }, [orderIds, orderStorageScope]);
 
   useEffect(() => {
-    writeOrderDetails(localOrders);
-  }, [localOrders]);
+    writeOrderDetails(localOrders, orderStorageScope);
+  }, [localOrders, orderStorageScope]);
+
+  useEffect(() => {
+    setOrderIds(readOrderIds(orderStorageScope));
+    setLocalOrders(readOrderDetails(orderStorageScope));
+    setPendingOrder(readPendingOrder(orderStorageScope));
+  }, [orderStorageScope]);
 
   useEffect(() => {
     let isActive = true;
@@ -1637,12 +1724,13 @@ function App() {
     setCartItems([]);
     setOrderIds((current) => [order._id, ...current.filter((value) => value !== order._id)]);
     setLocalOrders((current) => {
-      const pendingOrderDetails = readPendingOrder();
+      const pendingOrderDetails = readPendingOrder(orderStorageScope);
       const enrichedOrder = pendingOrderDetails ? enrichOrderWithItemImages(order, pendingOrderDetails) : order;
 
       return upsertOrderInList(current, enrichedOrder);
     });
-    clearPendingOrder();
+    clearPendingOrder(orderStorageScope);
+    setPendingOrder(null);
   }
 
   function navigate(path) {
@@ -1727,9 +1815,7 @@ function App() {
             <button className="icon-button" type="button" onClick={() => navigate(getOrdersPath(baseUrl))}>
               Narocila
             </button>
-            <a className="studio-link" href={adminPath}>
-              Admin
-            </a>
+            {hasClerk ? <AdminLink href={adminPath} /> : null}
             {hasClerk ? (
               <AuthControls />
             ) : (
@@ -1760,15 +1846,18 @@ function App() {
       ) : null}
 
       {route.kind === 'checkout' ? (
-        <CheckoutPage
-          cartItems={cartItems}
-          checkoutStatus={checkoutStatus}
-        />
+      <CheckoutPage
+        cartItems={cartItems}
+        checkoutStatus={checkoutStatus}
+        orderStorageScope={orderStorageScope}
+        clerkUserId={currentClerkUserId}
+        onPendingOrderChange={setPendingOrder}
+      />
       ) : null}
 
       {route.kind === 'orders' ? (
         <OrdersPage
-          orderIds={orderIds}
+          currentClerkUserId={currentClerkUserId}
           localOrders={localOrders}
           baseUrl={baseUrl}
           onNavigate={navigate}

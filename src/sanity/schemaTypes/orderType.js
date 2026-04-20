@@ -18,6 +18,11 @@ export const orderType = defineType({
       validation: (rule) => rule.required(),
     }),
     defineField({
+      name: 'clerkUserId',
+      title: 'Clerk User ID',
+      type: 'string',
+    }),
+    defineField({
       name: 'status',
       title: 'Status',
       type: 'string',

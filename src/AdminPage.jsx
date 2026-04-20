@@ -38,6 +38,118 @@ const STATUS_SECTIONS = [
   { key: 'prevzeto', title: 'Prevzeto' },
 ];
 
+function AdminBarChart({ title, subtitle, items, formatValue }) {
+  const maxValue = Math.max(...items.map((item) => item.value), 0);
+  const chartHeight = 220;
+  const chartWidth = 420;
+  const paddingLeft = 44;
+  const paddingRight = 16;
+  const paddingTop = 16;
+  const paddingBottom = 34;
+  const innerWidth = chartWidth - paddingLeft - paddingRight;
+  const innerHeight = chartHeight - paddingTop - paddingBottom;
+  const safeMax = maxValue > 0 ? maxValue : 1;
+  const points = items.map((item, index) => {
+    const x = paddingLeft + (items.length <= 1 ? innerWidth / 2 : (innerWidth / (items.length - 1)) * index);
+    const y = paddingTop + innerHeight - (item.value / safeMax) * innerHeight;
+
+    return { ...item, x, y };
+  });
+  const polylinePoints = points.map((point) => `${point.x},${point.y}`).join(' ');
+  const gridValues = Array.from({ length: 5 }, (_, index) => {
+    return Math.round((safeMax / 4) * (4 - index));
+  });
+
+  return (
+    <section className="admin-chart-card">
+      <div className="admin-section-head">
+        <div>
+          <p className="admin-kicker">Analitika</p>
+          <h2>{title}</h2>
+        </div>
+      </div>
+      <p className="admin-text">{subtitle}</p>
+      <div className="admin-line-chart">
+        <svg viewBox={`0 0 ${chartWidth} ${chartHeight}`} className="admin-line-chart-svg" aria-hidden="true">
+          {gridValues.map((value, index) => {
+            const y = paddingTop + (innerHeight / 4) * index;
+
+            return (
+              <g key={`${title}-${value}`}>
+                <line
+                  x1={paddingLeft}
+                  y1={y}
+                  x2={chartWidth - paddingRight}
+                  y2={y}
+                  className="admin-grid-line"
+                />
+                <text x={paddingLeft - 8} y={y + 4} className="admin-axis-label admin-axis-label-left">
+                  {formatValue(value)}
+                </text>
+              </g>
+            );
+          })}
+
+          {points.map((point) => (
+            <line
+              key={`${point.key}-grid`}
+              x1={point.x}
+              y1={paddingTop}
+              x2={point.x}
+              y2={paddingTop + innerHeight}
+              className="admin-grid-line admin-grid-line-vertical"
+            />
+          ))}
+
+          <line
+            x1={paddingLeft}
+            y1={paddingTop + innerHeight}
+            x2={chartWidth - paddingRight + 10}
+            y2={paddingTop + innerHeight}
+            className="admin-axis-line"
+          />
+          <polygon
+            points={`${chartWidth - paddingRight + 10},${paddingTop + innerHeight - 4} ${chartWidth - paddingRight + 24},${paddingTop + innerHeight} ${chartWidth - paddingRight + 10},${paddingTop + innerHeight + 4}`}
+            className="admin-axis-arrow"
+          />
+          <line
+            x1={paddingLeft}
+            y1={paddingTop + innerHeight}
+            x2={paddingLeft}
+            y2={paddingTop - 8}
+            className="admin-axis-line"
+          />
+          <polygon
+            points={`${paddingLeft - 4},${paddingTop - 8} ${paddingLeft},${paddingTop - 22} ${paddingLeft + 4},${paddingTop - 8}`}
+            className="admin-axis-arrow"
+          />
+
+          <polyline points={polylinePoints} className="admin-line-path" />
+
+          {points.map((point) => (
+            <g key={point.key}>
+              <circle cx={point.x} cy={point.y} r="7" className="admin-point-outer" />
+              <circle cx={point.x} cy={point.y} r="3.2" className="admin-point-inner" />
+              <text x={point.x} y={chartHeight - 8} className="admin-axis-label admin-axis-label-bottom">
+                {point.label}
+              </text>
+            </g>
+          ))}
+        </svg>
+      </div>
+      <div className="admin-chart-legend">
+        {items.map((item) => (
+          <div className="admin-chart-legend-item" key={`${item.key}-legend`}>
+            <span className={`admin-chart-dot admin-chart-dot-${item.key}`} />
+            <span>{item.label}</span>
+            <strong>{formatValue(item.value)}</strong>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function getCustomerName(order) {
   return `${order.customer?.firstName || ''} ${order.customer?.lastName || ''}`.trim() || 'Neznana stranka';
 }
@@ -337,6 +449,18 @@ function AdminPage() {
   }));
   const totalRevenue = orders.reduce((sum, order) => sum + Number(order.totalAmount || 0), 0);
   const bestSellingProduct = getBestSellingProduct(orders);
+  const revenueChartItems = STATUS_SECTIONS.map((section) => ({
+    key: section.key,
+    label: section.title,
+    value: orders
+      .filter((order) => (order.status || 'v-pripravi') === section.key)
+      .reduce((sum, order) => sum + Number(order.totalAmount || 0), 0),
+  }));
+  const orderCountChartItems = STATUS_SECTIONS.map((section) => ({
+    key: section.key,
+    label: section.title,
+    value: orders.filter((order) => (order.status || 'v-pripravi') === section.key).length,
+  }));
 
   return (
     <div className="admin-page">
@@ -348,19 +472,14 @@ function AdminPage() {
           <a className="admin-link-button admin-link-button-secondary" href={shopPath}>
             Nazaj v shop
           </a>
+          <a className="admin-link-button" href={studioPath}>
+            Odpri Studio
+          </a>
           {isLoaded && userId ? <UserButton /> : null}
         </div>
       </header>
 
       <main className="admin-main">
-        <section className="admin-hero">
-          <p className="admin-kicker">Nadzorna plosca</p>
-          <h1>Admin stran za upravljanje trgovine</h1>
-          <p className="admin-text">
-            Tukaj lahko odpiras Sanity Studio, preveris vsebine in upravljas katalog izdelkov.
-          </p>
-        </section>
-
         {isLoaded && !userId ? (
           <section className="admin-card">
             <h2>Prijava potrebna</h2>
@@ -377,26 +496,19 @@ function AdminPage() {
 
         {isLoaded && userId ? (
           <>
-            <section className="admin-grid">
-              <article className="admin-card">
-                <h2>Sanity Studio</h2>
-                <p className="admin-text">
-                  Urejaj produkte, lige, klube in narocila v CMS vmesniku.
-                </p>
-                <a className="admin-link-button" href={studioPath}>
-                  Odpri Studio
-                </a>
-              </article>
-
-              <article className="admin-card">
-                <h2>Trgovina</h2>
-                <p className="admin-text">
-                  Vrni se na glavno stran trgovine in preveri prikaz izdelkov za uporabnike.
-                </p>
-                <a className="admin-link-button admin-link-button-secondary" href={shopPath}>
-                  Odpri shop
-                </a>
-              </article>
+            <section className="admin-charts-grid">
+              <AdminBarChart
+                title="Prihodki"
+                subtitle="Pregled prihodkov po statusu narocil."
+                items={revenueChartItems}
+                formatValue={(value) => formatPrice(value, 'EUR')}
+              />
+              <AdminBarChart
+                title="Narocila"
+                subtitle="Stevilo narocil po statusu."
+                items={orderCountChartItems}
+                formatValue={(value) => `${value}`}
+              />
             </section>
 
             <section className="admin-card">

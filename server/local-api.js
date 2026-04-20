@@ -1,6 +1,6 @@
 import express from 'express';
 import { createCheckoutSession } from './stripeCheckout.js';
-import { confirmOrder, getAllOrders, getOrdersByIds, updateOrderStatus } from './ordersStore.js';
+import { confirmOrder, getAllOrders, getOrdersByClerkUserId, getOrdersByIds, updateOrderStatus } from './ordersStore.js';
 import { sendTestEmail } from './emailService.js';
 
 const app = express();
@@ -17,6 +17,7 @@ app.post('/api/create-checkout-session', async (req, res) => {
     const session = await createCheckoutSession({
       cartItems: req.body?.cartItems,
       customer: req.body?.customer,
+      clerkUserId: req.body?.clerkUserId,
       origin: req.headers.origin || 'http://localhost:5173',
     });
 
@@ -69,6 +70,23 @@ app.get('/api/orders', async (req, res) => {
   } catch (error) {
     return res.status(500).json({
       error: error instanceof Error ? error.message : 'Orders fetch error.',
+    });
+  }
+});
+
+app.get('/api/my-orders', async (req, res) => {
+  try {
+    const clerkUserId = String(req.query.clerkUserId || '').trim();
+
+    if (!clerkUserId) {
+      return res.status(400).json({ error: 'Missing clerkUserId.' });
+    }
+
+    const orders = await getOrdersByClerkUserId(clerkUserId);
+    return res.status(200).json({ orders });
+  } catch (error) {
+    return res.status(500).json({
+      error: error instanceof Error ? error.message : 'My orders fetch error.',
     });
   }
 });

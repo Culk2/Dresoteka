@@ -40,6 +40,7 @@ function toLocalOrder({ session, lineItems }) {
   return {
     _id: getOrderDocumentId(session.id),
     orderNumber: formatOrderNumber(session.id),
+    clerkUserId: String(session.metadata?.clerkUserId || ''),
     status: 'v-pripravi',
     paymentStatus: session.payment_status || 'unpaid',
     totalAmount: typeof session.amount_total === 'number' ? session.amount_total / 100 : 0,
@@ -126,6 +127,7 @@ export async function getOrdersByIds(ids) {
         orderNumber,
         status,
         paymentStatus,
+        clerkUserId,
         totalAmount,
         currency,
         createdAt,
@@ -151,6 +153,7 @@ export async function getAllOrders() {
         orderNumber,
         status,
         paymentStatus,
+        clerkUserId,
         totalAmount,
         currency,
         createdAt,
@@ -190,6 +193,7 @@ export async function updateOrderStatus(orderId, status) {
         orderNumber,
         status,
         paymentStatus,
+        clerkUserId,
         totalAmount,
         currency,
         createdAt,
@@ -210,5 +214,39 @@ export async function updateOrderStatus(orderId, status) {
     const remaining = current.filter((order) => order._id !== normalizedId);
     writeOrders([updatedOrder, ...remaining]);
     return updatedOrder;
+  }
+}
+
+export async function getOrdersByClerkUserId(clerkUserId) {
+  const normalizedClerkUserId = String(clerkUserId || '').trim();
+
+  if (!normalizedClerkUserId) {
+    return [];
+  }
+
+  try {
+    const { createSanityClient } = await import('./stripeCheckout.js');
+    const client = createSanityClient();
+
+    return client.fetch(
+      `*[_type == "order" && clerkUserId == $clerkUserId] | order(createdAt desc){
+        _id,
+        orderNumber,
+        status,
+        paymentStatus,
+        clerkUserId,
+        totalAmount,
+        currency,
+        createdAt,
+        customer,
+        items
+      }`,
+      { clerkUserId: normalizedClerkUserId },
+    );
+  } catch {
+    const localOrders = readOrders();
+    return localOrders
+      .filter((order) => String(order.clerkUserId || '') === normalizedClerkUserId)
+      .sort((left, right) => new Date(right.createdAt || 0).getTime() - new Date(left.createdAt || 0).getTime());
   }
 }
