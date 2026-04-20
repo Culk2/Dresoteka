@@ -1,6 +1,6 @@
 import express from 'express';
 import { createCheckoutSession } from './stripeCheckout.js';
-import { confirmOrder, getOrdersByIds } from './ordersStore.js';
+import { confirmOrder, getAllOrders, getOrdersByIds } from './ordersStore.js';
 
 const app = express();
 const port = Number(process.env.LOCAL_API_PORT || 3001);
@@ -57,6 +57,17 @@ app.get('/api/orders', async (req, res) => {
   } catch (error) {
     return res.status(500).json({
       error: error instanceof Error ? error.message : 'Orders fetch error.',
+    });
+  }
+});
+
+app.get('/api/admin/orders', async (_req, res) => {
+  try {
+    const orders = await getAllOrders();
+    return res.status(200).json({ orders });
+  } catch (error) {
+    return res.status(500).json({
+      error: error instanceof Error ? error.message : 'Admin orders fetch error.',
     });
   }
 });

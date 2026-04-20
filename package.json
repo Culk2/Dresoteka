@@ -4,10 +4,10 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "concurrently \"node server/local-api.js\" \"vite\"",
+    "dev": "concurrently \"node --watch server/local-api.js\" \"vite\"",
     "dev:front": "vite",
-    "dev:api": "node server/local-api.js",
-    "dev:full": "concurrently \"node server/local-api.js\" \"vite\"",
+    "dev:api": "node --watch server/local-api.js",
+    "dev:full": "concurrently \"node --watch server/local-api.js\" \"vite\"",
     "build": "vite build",
     "preview": "vite preview"
   },

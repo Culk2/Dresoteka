@@ -126,3 +126,29 @@ export async function getOrdersByIds(ids) {
     return localOrders.filter((order) => requestedIds.includes(order._id));
   }
 }
+
+export async function getAllOrders() {
+  try {
+    const { createSanityClient } = await import('./stripeCheckout.js');
+    const client = createSanityClient();
+
+    return client.fetch(
+      `*[_type == "order"] | order(createdAt desc){
+        _id,
+        orderNumber,
+        status,
+        paymentStatus,
+        totalAmount,
+        currency,
+        createdAt,
+        customer,
+        items
+      }`,
+    );
+  } catch {
+    const localOrders = readOrders();
+    return [...localOrders].sort(
+      (left, right) => new Date(right.createdAt || 0).getTime() - new Date(left.createdAt || 0).getTime(),
+    );
+  }
+}
