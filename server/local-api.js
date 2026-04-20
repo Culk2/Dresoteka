@@ -1,6 +1,7 @@
 import express from 'express';
 import { createCheckoutSession } from './stripeCheckout.js';
 import { confirmOrder, getAllOrders, getOrdersByIds, updateOrderStatus } from './ordersStore.js';
+import { sendTestEmail } from './emailService.js';
 
 const app = express();
 const port = Number(process.env.LOCAL_API_PORT || 3001);
@@ -40,6 +41,17 @@ app.post('/api/confirm-order', async (req, res) => {
   } catch (error) {
     return res.status(500).json({
       error: error instanceof Error ? error.message : 'Order confirmation error.',
+    });
+  }
+});
+
+app.post('/api/test-order-email', async (req, res) => {
+  try {
+    const result = await sendTestEmail(req.body?.email);
+    return res.status(200).json(result);
+  } catch (error) {
+    return res.status(500).json({
+      error: error instanceof Error ? error.message : 'Test email error.',
     });
   }
 });

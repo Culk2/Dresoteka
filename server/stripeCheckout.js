@@ -43,6 +43,8 @@ function getEnv() {
     gmailSmtpUser: process.env.GMAIL_SMTP_USER || fileEnv.GMAIL_SMTP_USER || '',
     gmailSmtpPass: process.env.GMAIL_SMTP_PASS || fileEnv.GMAIL_SMTP_PASS || '',
     orderEmailFrom: process.env.ORDER_EMAIL_FROM || fileEnv.ORDER_EMAIL_FROM || 'dresko54@gmail.com',
+    gmailAllowSelfSigned:
+      process.env.GMAIL_SMTP_ALLOW_SELF_SIGNED || fileEnv.GMAIL_SMTP_ALLOW_SELF_SIGNED || '',
     sanityProjectId:
       process.env.VITE_SANITY_PROJECT_ID ||
       fileEnv.VITE_SANITY_PROJECT_ID ||
